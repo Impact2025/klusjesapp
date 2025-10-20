@@ -14,6 +14,34 @@ type EmailPayload = {
   html: string;
 };
 
+type NotificationPayload =
+  | {
+      type: 'welcome_parent';
+      to: string;
+      data: { familyName: string; familyCode: string };
+    }
+  | {
+      type: 'chore_submitted';
+      to: string;
+      data: { parentName: string; childName: string; choreName: string; points: number };
+    }
+  | {
+      type: 'reward_redeemed';
+      to: string;
+      data: { parentName: string; childName: string; rewardName: string; points: number };
+    }
+  | {
+      type: 'admin_new_registration';
+      to: string;
+      data: { 
+        familyName: string;
+        email: string;
+        city: string;
+        familyCode: string;
+        timestamp: string;
+      };
+    };
+
 const brand = {
   background: '#f1f5f9',
   cardBg: '#ffffff',
@@ -130,15 +158,17 @@ export function renderWelcomeEmail({
       {
         title: 'Jullie gezinscode',
         body: [
-          `Gebruik deze code om je kinderen toegang te geven: <strong style="color:${brand.primary};font-size:18px;">${familyCode}</strong>. Hang hem op een zichtbare plek zodat iedereen mee kan doen.`,
+          `Gebruik deze code om je kinderen toegang te geven:`,
+          `<strong style="color:${brand.primary};font-size:24px;letter-spacing:2px;">${familyCode}</strong>`,
+          `Hang hem op een zichtbare plek zodat iedereen mee kan doen!`,
         ],
       },
       {
         title: 'Zo starten jullie vandaag nog',
         body: [
-          '✔ Voeg kinderen toe en geef ze een pincode.',
-          '✔ Selecteer klusjes of genereer ideeën met de AI-assistent.',
-          '✔ Vul de beloningsshop met gezinsmomenten of een goed doel.',
+          '✔ Voeg kinderen toe en geef ze een pincode',
+          '✔ Selecteer klusjes of genereer ideeën met de AI-assistent',
+          '✔ Vul de beloningsshop met gezinsmomenten of een goed doel',
         ],
       },
     ],
@@ -147,6 +177,58 @@ export function renderWelcomeEmail({
       href: `${APP_BASE_URL}/app`,
     },
     footerNote: 'Heb je vragen? Reageer gerust op deze mail, we helpen je snel op weg.',
+  });
+
+  return { subject, html };
+}
+
+type AdminNotificationPayload = {
+  type: 'admin_new_registration';
+  to: string;
+  data: { 
+    familyName: string;
+    email: string;
+    city: string;
+    familyCode: string;
+    timestamp: string;
+  };
+};
+
+export function renderAdminRegistrationNotification({
+  familyName,
+  email,
+  city,
+  familyCode,
+  timestamp,
+}: {
+  familyName: string;
+  email: string;
+  city: string;
+  familyCode: string;
+  timestamp: string;
+}): EmailPayload {
+  const subject = `Nieuwe registratie: ${familyName}`;
+  const html = renderBaseEmail({
+    previewText: `Nieuwe familie geregistreerd: ${familyName} (${email})`,
+    heading: 'Nieuwe registratie',
+    intro: `Er heeft zich een nieuwe familie geregistreerd op KlusjesKoning.`,
+    contentBlocks: [
+      {
+        title: 'Registratie details',
+        body: [
+          `• Naam: <strong>${familyName}</strong>`,
+          `• E-mail: <strong>${email}</strong>`,
+          `• Stad: <strong>${city}</strong>`,
+          `• Gezinscode: <strong>${familyCode}</strong>`,
+          `• Tijdstip: <strong>${timestamp}</strong>`,
+        ],
+      },
+    ],
+    cta: {
+      label: 'Bekijk in admin panel',
+      href: `${APP_BASE_URL}/admin`,
+    },
+    footerNote: 'Dit is een automatisch gegenereerd bericht.',
   });
 
   return { subject, html };

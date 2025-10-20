@@ -5,6 +5,7 @@ import {
   renderChoreSubmissionEmail,
   renderRewardRedemptionEmail,
   renderWelcomeEmail,
+  renderAdminRegistrationNotification,
 } from '@/lib/email/templates';
 
 const SENDGRID_API_KEY = process.env.SENDGRID_API_KEY;
@@ -29,6 +30,17 @@ type NotificationPayload =
       type: 'reward_redeemed';
       to: string;
       data: { parentName: string; childName: string; rewardName: string; points: number };
+    }
+  | {
+      type: 'admin_new_registration';
+      to: string;
+      data: { 
+        familyName: string;
+        email: string;
+        city: string;
+        familyCode: string;
+        timestamp: string;
+      };
     };
 
 export async function POST(request: Request) {
@@ -64,6 +76,12 @@ export async function POST(request: Request) {
       }
       case 'reward_redeemed': {
         const email = renderRewardRedemptionEmail(payload.data);
+        subject = email.subject;
+        html = email.html;
+        break;
+      }
+      case 'admin_new_registration': {
+        const email = renderAdminRegistrationNotification(payload.data);
         subject = email.subject;
         html = email.html;
         break;

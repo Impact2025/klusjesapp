@@ -1,11 +1,17 @@
-import {genkit} from 'genkit';
-import {googleAI} from '@genkit-ai/googleai';
+import { genkit } from 'genkit';
+
+// Configure for OpenRouter directly
+const openRouterKey = process.env.OPENROUTER_API_KEY;
 
 export const ai = genkit({
-  plugins: [
-    googleAI({
-      apiKey: process.env.GOOGLE_API_KEY,
-    }),
-  ],
-  model: 'googleai/gemini-2.5-flash',
+  plugins: [],
+  model: 'openai/gpt-4o-mini',
 });
+
+// If we have an OpenRouter key, configure the API endpoint
+if (openRouterKey) {
+  // We'll handle the OpenRouter API calls directly in the flow
+  console.log('OpenRouter API key found, using OpenRouter for AI blog generation');
+} else {
+  console.log('No OpenRouter API key found, falling back to default configuration');
+}

@@ -94,6 +94,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const getAdminStats = useCallback(async () => {
     setIsLoading(true);
     try {
+        if (!db) {
+          console.error("Firestore is not initialized");
+          toast({ variant: 'destructive', title: 'Fout', description: 'Database niet beschikbaar.' });
+          return;
+        }
         const familiesRef = collection(db, "families");
         const querySnapshot = await getDocs(familiesRef);
         
@@ -135,6 +140,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const getGoodCauses = useCallback(async () => {
     setIsLoading(true);
     try {
+      if (!db) {
+        console.error("Firestore is not initialized");
+        toast({ variant: 'destructive', title: 'Fout', description: 'Database niet beschikbaar.' });
+        return;
+      }
       const causesRef = collection(db, "goodCauses");
       const querySnapshot = await getDocs(causesRef);
       const causes = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as GoodCause));
@@ -152,6 +162,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const fetchFamilyData = async (familyId: string) => {
         setIsLoading(true);
         try {
+            if (!db) {
+              console.error("Firestore is not initialized");
+              setScreen('landing');
+              return;
+            }
             const familyDocRef = doc(db, 'families', familyId);
             const familyDocSnap = await getDoc(familyDocRef);
             if (familyDocSnap.exists()) {
@@ -252,6 +267,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const loginChildStep1 = async (familyCode: string) => {
     setIsLoading(true);
+    if (!db) {
+      console.error("Firestore is not initialized");
+      toast({ variant: 'destructive', title: 'Fout', description: 'Database niet beschikbaar.' });
+      setIsLoading(false);
+      return;
+    }
     const familiesRef = collection(db, "families");
     const q = query(familiesRef, where("familyCode", "==", familyCode.toUpperCase()));
     try {
@@ -517,6 +538,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const addGoodCause = useCallback(async (cause: Omit<GoodCause, 'id'>) => {
     setIsLoading(true);
     try {
+      if (!db) {
+        console.error("Firestore is not initialized");
+        toast({ variant: 'destructive', title: 'Fout', description: 'Database niet beschikbaar.' });
+        return;
+      }
       await addDoc(collection(db, "goodCauses"), cause);
       toast({ title: "Succes", description: "Goed doel toegevoegd." });
       await getGoodCauses(); // Refresh the list

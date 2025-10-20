@@ -89,6 +89,17 @@ type NotificationPayload =
       type: 'reward_redeemed';
       to: string;
       data: { parentName: string; childName: string; rewardName: string; points: number };
+    }
+  | {
+      type: 'admin_new_registration';
+      to: string;
+      data: { 
+        familyName: string;
+        email: string;
+        city: string;
+        familyCode: string;
+        timestamp: string;
+      };
     };
 
 interface AppContextType {
@@ -147,14 +158,14 @@ const AppContext = createContext<AppContextType | undefined>(undefined);
 const generateFamilyCode = () => (Math.random().toString(36).substring(2, 8)).toUpperCase();
 
 const getInitialScreen = (): Screen => {
-  if (typeof window !== 'undefined' && window.location.pathname === '/admin') {
+  if (typeof window !== 'undefined' && typeof window.location !== 'undefined' && window.location.pathname === '/admin') {
     return 'adminLogin';
   }
   return 'landing';
 };
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
-  const [currentScreen, setScreen] = useState<Screen>('landing');
+  const [currentScreen, setScreen] = useState<Screen>(() => getInitialScreen());
   const [isLoading, setIsLoading] = useState(true);
   const [family, setFamily] = useState<Family | null>(null);
   const [user, setUser] = useState<Child | null>(null);
@@ -184,14 +195,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     // This effect runs only on the client side and handles the initial screen logic.
     // This avoids hydration errors.
-    if (window.location.pathname === '/admin') {
+    if (typeof window !== 'undefined' && window.location.pathname === '/admin' && currentScreen !== 'adminLogin' && currentScreen !== 'adminDashboard') {
       setScreen('adminLogin');
     }
-  }, []);
+  }, [currentScreen]);
 
   const getAdminStats = useCallback(async () => {
     setIsLoading(true);
     try {
+        if (!db) {
+            console.error("Firestore is not initialized");
+            toast({ variant: 'destructive', title: 'Fout', description: 'Database niet beschikbaar.' });
+            return;
+        }
         const familiesRef = collection(db, "families");
         const querySnapshot = await getDocs(familiesRef);
         
@@ -233,6 +249,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const getGoodCauses = useCallback(async () => {
     setIsLoading(true);
     try {
+      if (!db) {
+        console.error("Firestore is not initialized");
+        toast({ variant: 'destructive', title: 'Fout', description: 'Database niet beschikbaar.' });
+        return;
+      }
       const causesRef = collection(db, "goodCauses");
       const querySnapshot = await getDocs(causesRef);
       const causes = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as GoodCause));
@@ -257,6 +278,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const getBlogPosts = useCallback(async () => {
     setIsLoading(true);
     try {
+      if (!db) {
+        console.error("Firestore is not initialized");
+        toast({ variant: 'destructive', title: 'Fout', description: 'Database niet beschikbaar.' });
+        return;
+      }
       const snapshot = await getDocs(collection(db, 'blogPosts'));
       const posts = snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() } as BlogPost));
       setBlogPosts(sortByPublishedDate(posts));
@@ -272,6 +298,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     async (data: BlogPostInput) => {
       setIsLoading(true);
       try {
+        if (!db) {
+          console.error("Firestore is not initialized");
+          toast({ variant: 'destructive', title: 'Fout', description: 'Database niet beschikbaar.' });
+          return;
+        }
         const now = Timestamp.now();
         const payload = {
           ...data,
@@ -300,6 +331,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     async (postId: string, data: BlogPostInput) => {
       setIsLoading(true);
       try {
+        if (!db) {
+          console.error("Firestore is not initialized");
+          toast({ variant: 'destructive', title: 'Fout', description: 'Database niet beschikbaar.' });
+          return;
+        }
         const now = Timestamp.now();
         const payload = {
           ...data,
@@ -327,6 +363,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     async (postId: string) => {
       setIsLoading(true);
       try {
+        if (!db) {
+          console.error("Firestore is not initialized");
+          toast({ variant: 'destructive', title: 'Fout', description: 'Database niet beschikbaar.' });
+          return;
+        }
         await deleteDoc(doc(db, 'blogPosts', postId));
         toast({ title: 'Verwijderd', description: 'Blogpost verwijderd.' });
         await getBlogPosts();
@@ -343,6 +384,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const getReviews = useCallback(async () => {
     setIsLoading(true);
     try {
+      if (!db) {
+        console.error("Firestore is not initialized");
+        toast({ variant: 'destructive', title: 'Fout', description: 'Database niet beschikbaar.' });
+        return;
+      }
       const snapshot = await getDocs(collection(db, 'reviews'));
       const items = snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() } as Review));
       setReviews(sortByPublishedDate(items));
@@ -358,6 +404,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     async (data: ReviewInput) => {
       setIsLoading(true);
       try {
+        if (!db) {
+          console.error("Firestore is not initialized");
+          toast({ variant: 'destructive', title: 'Fout', description: 'Database niet beschikbaar.' });
+          return;
+        }
         const now = Timestamp.now();
         const payload = {
           ...data,
@@ -384,6 +435,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     async (reviewId: string, data: ReviewInput) => {
       setIsLoading(true);
       try {
+        if (!db) {
+          console.error("Firestore is not initialized");
+          toast({ variant: 'destructive', title: 'Fout', description: 'Database niet beschikbaar.' });
+          return;
+        }
         const now = Timestamp.now();
         const payload = {
           ...data,
@@ -410,6 +466,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     async (reviewId: string) => {
       setIsLoading(true);
       try {
+        if (!db) {
+          console.error("Firestore is not initialized");
+          toast({ variant: 'destructive', title: 'Fout', description: 'Database niet beschikbaar.' });
+          return;
+        }
         await deleteDoc(doc(db, 'reviews', reviewId));
         toast({ title: 'Verwijderd', description: 'Review verwijderd.' });
         await getReviews();
@@ -428,6 +489,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const fetchFamilyData = async (familyId: string) => {
         setIsLoading(true);
         try {
+            if (!db) {
+              console.error("Firestore is not initialized");
+              setScreen('landing');
+              return;
+            }
             const familyDocRef = doc(db, 'families', familyId);
             const familyDocSnap = await getDoc(familyDocRef);
             if (familyDocSnap.exists()) {
@@ -469,7 +535,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             setGoodCauses(null);
             setBlogPosts(null);
             setReviews(null);
-            if (window.location.pathname !== '/admin') {
+            // Check if we're on the admin page
+            if (typeof window !== 'undefined' && window.location.pathname === '/admin') {
+              setScreen('adminLogin');
+            } else {
               setScreen('landing');
             }
             setIsLoading(false);
@@ -509,44 +578,78 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   };
   
   const registerFamily = async (familyName: string, city: string, email: string, password) => {
-      setIsLoading(true);
+    setIsLoading(true);
+    try {
+      if (!db) {
+        console.error("Firestore is not initialized");
+        toast({ variant: "destructive", title: "Fout", description: 'Database niet beschikbaar.' });
+        return;
+      }
+      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      const familyCode = generateFamilyCode();
+      const newFamily: Family = {
+          id: userCredential.user.uid,
+          familyCode,
+          familyName,
+          city,
+          email,
+          createdAt: Timestamp.now(),
+          recoveryEmail: email,
+          children: [], chores: [], rewards: [], pendingRewards: [],
+      };
+      await setDoc(doc(db, 'families', newFamily.id), newFamily);
+      
+      // Send welcome email to the new family
       try {
-        const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-        const newFamily: Family = {
-            id: userCredential.user.uid,
-            familyCode: generateFamilyCode(),
-            familyName,
-            city,
-            email,
-            createdAt: Timestamp.now(),
-            recoveryEmail: email,
-            children: [], chores: [], rewards: [], pendingRewards: [],
-            subscription: {
-              plan: 'starter',
-              status: 'active',
-              interval: null,
-              renewalDate: null,
-              lastPaymentAt: null,
-              orderId: null,
-            },
-        };
-        await setDoc(doc(db, 'families', newFamily.id), newFamily);
-        void sendNotification({
+        await sendNotification({
           type: 'welcome_parent',
           to: email,
-          data: { familyName, familyCode: newFamily.familyCode },
+          data: {
+            familyName,
+            familyCode
+          }
         });
-        // Let the onAuthStateChanged handle the state update
-        toast({ title: "Welkom!", description: "Je gezin is aangemaakt." });
-      } catch (error) {
-          console.error("Error registering family: ", error);
-          toast({ variant: "destructive", title: "Registratiefout", description: "Er is iets misgegaan." });
-          setIsLoading(false);
+      } catch (emailError) {
+        console.error("Failed to send welcome email:", emailError);
       }
+      
+      // Send notification to admin about new registration
+      try {
+        const adminEmail = process.env.SENDGRID_FROM_EMAIL || 'info@klusjeskoning.app';
+        if (adminEmail) {
+          await sendNotification({
+            type: 'admin_new_registration',
+            to: adminEmail,
+            data: {
+              familyName,
+              email,
+              city,
+              familyCode,
+              timestamp: new Date().toLocaleString('nl-NL')
+            }
+          });
+        }
+      } catch (adminEmailError) {
+        console.error("Failed to send admin notification:", adminEmailError);
+      }
+      
+      // Let the onAuthStateChanged handle the state update
+      toast({ title: "Welkom!", description: "Je gezin is aangemaakt. Check je e-mail voor je gezinscode!" });
+    } catch (error) {
+        console.error("Error registering family: ", error);
+        toast({ variant: "destructive", title: "Registratiefout", description: "Er is iets misgegaan." });
+        setIsLoading(false);
+    }
   };
 
   const loginChildStep1 = async (familyCode: string) => {
     setIsLoading(true);
+    if (!db) {
+      console.error("Firestore is not initialized");
+      toast({ variant: 'destructive', title: 'Fout', description: 'Database niet beschikbaar.' });
+      setIsLoading(false);
+      return;
+    }
     const familiesRef = collection(db, "families");
     const q = query(familiesRef, where("familyCode", "==", familyCode.toUpperCase()));
     try {
@@ -587,6 +690,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   };
   
   const refreshFamilyData = useCallback(async () => {
+    if (!db) {
+      console.error("Firestore is not initialized");
+      return;
+    }
     if (family?.id) {
         const familyDocRef = doc(db, 'families', family.id);
         const familyDocSnap = await getDoc(familyDocRef);
@@ -597,7 +704,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [family?.id]);
 
   const updateFamilyDoc = useCallback(async (updates: Record<string, unknown>) => {
-      if (!family) return;
+      if (!family || !db) return;
       const familyDocRef = doc(db, 'families', family.id);
       await updateDoc(familyDocRef, updates);
       await refreshFamilyData();
@@ -672,7 +779,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   };
 
   const approveChore = async (choreId: string) => {
-      if(!family) return;
+      if(!family || !db) return;
       setIsLoading(true);
       
       const familyDocRef = doc(db, 'families', family.id);
@@ -715,8 +822,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   
   const submitChoreForApproval = (choreId: string, emotion: string, photoFile: File | null): Promise<void> => {
     return new Promise(async (resolve, reject) => {
-        if (!user || !family) {
-            return reject(new Error("User or family not found"));
+        if (!user || !family || !db) {
+            return reject(new Error("User, family, or database not found"));
         }
 
         try {
@@ -774,7 +881,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   };
 
   const redeemReward = async (rewardId: string) => {
-    if (!user || !family) return;
+    if (!user || !family || !db) return;
     setIsLoading(true);
 
     const familyDocRef = doc(db, 'families', family.id);
@@ -853,6 +960,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const addGoodCause = useCallback(async (cause: Omit<GoodCause, 'id'>) => {
     setIsLoading(true);
     try {
+      if (!db) {
+        console.error("Firestore is not initialized");
+        toast({ variant: 'destructive', title: 'Fout', description: 'Database niet beschikbaar.' });
+        return;
+      }
       await addDoc(collection(db, "goodCauses"), cause);
       toast({ title: "Succes", description: "Goed doel toegevoegd." });
       await getGoodCauses(); // Refresh the list
@@ -867,6 +979,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const updateGoodCause = useCallback(async (causeId: string, updates: Partial<Omit<GoodCause, 'id'>>) => {
     setIsLoading(true);
     try {
+      if (!db) {
+        console.error("Firestore is not initialized");
+        toast({ variant: 'destructive', title: 'Fout', description: 'Database niet beschikbaar.' });
+        return;
+      }
       const causeRef = doc(db, "goodCauses", causeId);
       await updateDoc(causeRef, updates);
       toast({ title: "Succes", description: "Goed doel bijgewerkt." });
