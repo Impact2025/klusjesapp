@@ -20,7 +20,7 @@ import type {
 } from '@/lib/types';
 import { useToast } from "@/hooks/use-toast"
 import confetti from 'canvas-confetti';
-import { auth, db, storage } from '@/lib/firebase';
+import { getFirebaseAuth, getFirebaseDb, getFirebaseStorage } from '@/lib/firebase';
 import { 
     createUserWithEmailAndPassword, 
     signInWithEmailAndPassword, 
@@ -169,6 +169,11 @@ const getInitialScreen = (): Screen => {
 };
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
+  // Initialize Firebase services lazily
+  const auth = getFirebaseAuth();
+  const db = getFirebaseDb();
+  const storage = getFirebaseStorage();
+
   const [currentScreen, setScreen] = useState<Screen>(() => getInitialScreen());
   const [isLoading, setIsLoading] = useState(false); // Start with false to prevent SSR issues
   const [family, setFamily] = useState<Family | null>(null);
