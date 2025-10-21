@@ -4,6 +4,9 @@ import Link from 'next/link';
 import { format } from 'date-fns';
 import { nl } from 'date-fns/locale';
 
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 export const metadata = {
   title: 'Reviews - Ervaringen van Gezinnen',
   description: 'Lees ervaringen van gezinnen die KlusjesKoning gebruiken en laat je inspireren. Van eerste klusjes tot grote beloningen.',
