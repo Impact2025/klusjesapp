@@ -9,7 +9,7 @@ import AddGoodCauseModal from '../models/AddGoodCauseModal';
 import EditGoodCauseModal from '../models/EditGoodCauseModal';
 import { format } from 'date-fns';
 import { nl } from 'date-fns/locale';
-import { Timestamp } from 'firebase/firestore';
+import { Timestamp } from '@/lib/timestamp';
 import type { GoodCause } from '@/lib/types';
 import type { BlogPost, Review } from '@/lib/types';
 import BlogPostModal from '../models/BlogPostModal';

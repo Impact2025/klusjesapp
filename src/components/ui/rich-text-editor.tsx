@@ -14,8 +14,6 @@ import { Bold, Heading1, Heading2, ImageIcon, Italic, LinkIcon, List, ListOrdere
 
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { storage } from '@/lib/firebase';
-import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 
 type RichTextEditorProps = {
   value: string;
@@ -83,11 +81,21 @@ export function RichTextEditor({ value, onChange, placeholder }: RichTextEditorP
       if (!file) return;
       setIsUploading(true);
       try {
-        const path = `blog-images/${Date.now()}-${file.name}`;
-        const storageRef = ref(storage, path);
-        const snapshot = await uploadBytes(storageRef, file);
-        const url = await getDownloadURL(snapshot.ref);
-        editor.chain().focus().setImage({ src: url, alt: file.name }).run();
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('folder', 'blog-images');
+
+        const uploadResponse = await fetch('/api/upload', {
+          method: 'POST',
+          body: formData,
+        });
+
+        if (!uploadResponse.ok) {
+          throw new Error('Upload failed');
+        }
+
+        const uploadData = await uploadResponse.json();
+        editor.chain().focus().setImage({ src: uploadData.url, alt: file.name }).run();
       } catch (error) {
         console.error('Failed to upload image', error);
         alert('Uploaden van afbeelding mislukt. Probeer het opnieuw.');

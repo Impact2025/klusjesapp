@@ -1,4 +1,4 @@
-import type { Timestamp } from 'firebase/firestore';
+import { Timestamp } from './timestamp';
 
 export type PlanTier = 'starter' | 'premium';
 export type BillingInterval = 'monthly' | 'yearly';

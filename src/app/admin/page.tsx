@@ -1,64 +1,33 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
 import { LogIn, Shield } from 'lucide-react';
-import { useToast } from '@/hooks/use-toast';
-import { getFirebaseAuth } from '@/lib/firebase';
-import { signInWithEmailAndPassword } from 'firebase/auth';
-
-// Hardcoded admin credentials
-const ADMIN_EMAIL = 'admin@klusjeskoning.nl';
-const ADMIN_PASS = 'SuperGeheim123!';
+import { useApp } from '@/components/app/AppProvider';
 
 export default function AdminLoginPage() {
   const router = useRouter();
-  const { toast } = useToast();
+  const { loginAdmin, currentScreen, isLoading } = useApp();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
-  const [auth, setAuth] = useState<ReturnType<typeof getFirebaseAuth> | null>(null);
 
-  // Initialize Firebase auth only on client-side
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      setAuth(getFirebaseAuth());
+    if (currentScreen === 'adminDashboard') {
+      router.push('/admin/dashboard');
     }
-  }, []);
+  }, [currentScreen, router]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!auth) return;
-    
-    setIsLoading(true);
-
     try {
-      // Check if credentials match hardcoded admin credentials
-      if (email === ADMIN_EMAIL && password === ADMIN_PASS) {
-        // Sign in with Firebase
-        await signInWithEmailAndPassword(auth, email, password);
-        // Redirect to admin dashboard
-        router.push('/admin/dashboard');
-      } else {
-        toast({
-          variant: 'destructive',
-          title: 'Fout',
-          description: 'Ongeldige admin-gegevens.',
-        });
-      }
-    } catch (error) {
-      console.error('Admin login error:', error);
-      toast({
-        variant: 'destructive',
-        title: 'Fout',
-        description: 'Er is iets misgegaan bij het inloggen.',
-      });
-    } finally {
-      setIsLoading(false);
+      await loginAdmin(email, password);
+      router.push('/admin/dashboard');
+    } catch {
+      // Foutmelding wordt afgehandeld door AppProvider
     }
   };
 
@@ -83,7 +52,7 @@ export default function AdminLoginPage() {
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="admin@klusjeskoning.nl"
                 required
-                disabled={isLoading || !auth}
+                disabled={isLoading}
               />
             </div>
             <div className="space-y-2">
@@ -95,12 +64,12 @@ export default function AdminLoginPage() {
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••"
                 required
-                disabled={isLoading || !auth}
+                disabled={isLoading}
               />
             </div>
           </CardContent>
           <CardFooter className="flex flex-col">
-            <Button type="submit" className="w-full" disabled={isLoading || !auth}>
+            <Button type="submit" className="w-full" disabled={isLoading}>
               <LogIn className="mr-2 h-4 w-4" />
               {isLoading ? 'Inloggen...' : 'Inloggen'}
             </Button>

@@ -1,88 +1,54 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { LogOut, Users, FileText, Gift, BarChart3, CreditCard } from 'lucide-react';
-import { auth, db } from '@/lib/firebase';
-import { onAuthStateChanged, signOut } from 'firebase/auth';
-import { collection, query, onSnapshot, getDocs } from 'firebase/firestore';
 import AdminLoading from '@/components/admin/AdminLoading';
+import { useApp } from '@/components/app/AppProvider';
 
 export default function AdminDashboard() {
   const router = useRouter();
-  const [user, setUser] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
-  const [stats, setStats] = useState({
-    families: 0,
-    children: 0,
-    blogPosts: 0,
-    reviews: 0,
-  });
+  const {
+    currentScreen,
+    isLoading,
+    logout,
+    adminStats,
+    blogPosts,
+    reviews,
+    getAdminStats,
+    getBlogPosts,
+    getReviews,
+    getAdminFamilies,
+    adminFamilies,
+  } = useApp();
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      if (user && user.email === 'admin@klusjeskoning.nl') {
-        setUser(user);
-        // Load real stats from Firebase
-        loadStats();
-      } else {
-        router.push('/admin');
-      }
-      setLoading(false);
-    });
-
-    return () => unsubscribe();
-  }, [router]);
-
-  const loadStats = async () => {
-    try {
-      // Fetch families data
-      const familiesQuery = query(collection(db, 'families'));
-      const familiesSnapshot = await getDocs(familiesQuery);
-      
-      // Calculate family statistics
-      let totalChildren = 0;
-      familiesSnapshot.forEach(doc => {
-        const data = doc.data();
-        totalChildren += data.childrenCount || 0;
-      });
-      
-      // Fetch blog posts count
-      const blogQuery = query(collection(db, 'blogPosts'));
-      const blogSnapshot = await getDocs(blogQuery);
-      
-      // Fetch reviews count
-      const reviewsQuery = query(collection(db, 'reviews'));
-      const reviewsSnapshot = await getDocs(reviewsQuery);
-      
-      // Update stats with real data
-      setStats({
-        families: familiesSnapshot.size,
-        children: totalChildren,
-        blogPosts: blogSnapshot.size,
-        reviews: reviewsSnapshot.size,
-      });
-    } catch (error) {
-      console.error('Error loading stats:', error);
+    if (currentScreen !== 'adminDashboard') {
+      router.push('/admin');
+      return;
     }
-  };
+    void (async () => {
+      await Promise.all([getAdminStats(), getBlogPosts(), getReviews(), getAdminFamilies()]);
+    })();
+  }, [currentScreen, getAdminFamilies, getAdminStats, getBlogPosts, getReviews, router]);
+
+  const familyCount = adminStats?.totalFamilies ?? adminFamilies?.length ?? 0;
+  const childCount = adminStats?.totalChildren ?? 0;
+  const blogCount = blogPosts?.length ?? 0;
+  const reviewCount = reviews?.length ?? 0;
 
   const handleLogout = async () => {
-    try {
-      await signOut(auth);
-      router.push('/admin');
-    } catch (error) {
-      console.error('Logout error:', error);
-    }
+    await logout();
+    router.push('/admin');
   };
 
-  if (loading) {
+  if (isLoading && currentScreen !== 'adminDashboard') {
     return <AdminLoading />;
   }
 
-  if (!user) {
+  if (currentScreen !== 'adminDashboard') {
     return <AdminLoading />;
   }
 
@@ -105,7 +71,7 @@ export default function AdminDashboard() {
               <Users className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{stats.families}</div>
+              <div className="text-2xl font-bold">{familyCount}</div>
               <p className="text-xs text-muted-foreground">Actieve gezinnen</p>
             </CardContent>
           </Card>
@@ -115,7 +81,7 @@ export default function AdminDashboard() {
               <Users className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{stats.children}</div>
+              <div className="text-2xl font-bold">{childCount}</div>
               <p className="text-xs text-muted-foreground">Geregistreerde kinderen</p>
             </CardContent>
           </Card>
@@ -125,7 +91,7 @@ export default function AdminDashboard() {
               <FileText className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{stats.blogPosts}</div>
+              <div className="text-2xl font-bold">{blogCount}</div>
               <p className="text-xs text-muted-foreground">Gepubliceerde artikelen</p>
             </CardContent>
           </Card>
@@ -135,7 +101,7 @@ export default function AdminDashboard() {
               <BarChart3 className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{stats.reviews}</div>
+              <div className="text-2xl font-bold">{reviewCount}</div>
               <p className="text-xs text-muted-foreground">Gebruikersreviews</p>
             </CardContent>
           </Card>

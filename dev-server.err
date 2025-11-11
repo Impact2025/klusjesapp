@@ -1,0 +1,13 @@
+The `fetchConnectionCache` option is deprecated (now always `true`)
+[api/app] registerFamily Error: EMAIL_IN_USE
+    at createFamily (src\server\services\family-service.ts:122:10)
+    at async POST (src\app\api\app\route.ts:286:45)
+  120 |   const existing = await db.query.families.findFirst({ where: eq(families.email, params.email) });
+  121 |   if (existing) {
+> 122 |     throw new Error('EMAIL_IN_USE');
+      |          ^
+  123 |   }
+  124 |
+  125 |   const familyCode = await generateUniqueFamilyCode();
+ ⨯ [Error: There is not enough information to infer relation "chores.assignments"]
+ ⨯ [Error: There is not enough information to infer relation "chores.assignments"]

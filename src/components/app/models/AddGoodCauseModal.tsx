@@ -10,7 +10,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { useToast } from '@/hooks/use-toast';
-import { Timestamp } from 'firebase/firestore';
+import { Timestamp } from '@/lib/timestamp';
 import { format } from 'date-fns';
 import { nl } from 'date-fns/locale';
 import { CalendarIcon } from 'lucide-react';

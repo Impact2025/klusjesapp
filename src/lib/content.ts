@@ -1,22 +1,28 @@
-import { collection, getDocs, query, where, limit as limitQuery } from 'firebase/firestore';
-import { db } from './firebase';
+import 'server-only';
+
+import { listBlogPosts, listReviews } from '@/server/services/family-service';
+import { mapBlogPost, mapReview } from '@/lib/api/app-client';
 import type { BlogPost, Review } from './types';
 
-const sortByPublishedDate = <T extends { publishedAt?: any; createdAt: any }>(items: T[]) =>
+const sortByPublishedDate = <T extends { publishedAt?: string | null; createdAt: string | null }>(items: T[]) =>
   [...items].sort((a, b) => {
-    const aDate = a.publishedAt ?? a.createdAt;
-    const bDate = b.publishedAt ?? b.createdAt;
-    const aMillis = typeof aDate?.toMillis === 'function' ? aDate.toMillis() : 0;
-    const bMillis = typeof bDate?.toMillis === 'function' ? bDate.toMillis() : 0;
-    return bMillis - aMillis;
+    const aDate = a.publishedAt ?? a.createdAt ?? null;
+    const bDate = b.publishedAt ?? b.createdAt ?? null;
+    const aTime = aDate ? new Date(aDate).getTime() : 0;
+    const bTime = bDate ? new Date(bDate).getTime() : 0;
+    return bTime - aTime;
   });
 
 export async function fetchPublishedBlogPosts(): Promise<BlogPost[]> {
-  if (!db) return [];
   try {
-    const snapshot = await getDocs(collection(db, 'blogPosts'));
-    const posts = snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() } as BlogPost));
-    return sortByPublishedDate(posts.filter((post) => post.status === 'published'));
+    // Check if DATABASE_URL is configured
+    if (!process.env.DATABASE_URL) {
+      console.warn('DATABASE_URL not configured, skipping blog posts');
+      return [];
+    }
+    const posts = await listBlogPosts();
+    const serializable = sortByPublishedDate(posts.filter((post) => post.status === 'published'));
+    return serializable.map(mapBlogPost);
   } catch (error) {
     console.error('Error fetching blog posts:', error);
     return [];
@@ -24,15 +30,14 @@ export async function fetchPublishedBlogPosts(): Promise<BlogPost[]> {
 }
 
 export async function fetchBlogPostBySlug(slug: string): Promise<BlogPost | null> {
-  if (!db) return null;
   try {
-    const postsQuery = query(collection(db, 'blogPosts'), where('slug', '==', slug), limitQuery(1));
-    const snapshot = await getDocs(postsQuery);
-    if (snapshot.empty) {
+    if (!process.env.DATABASE_URL) {
+      console.warn('DATABASE_URL not configured, skipping blog post');
       return null;
     }
-    const docSnap = snapshot.docs[0];
-    return { id: docSnap.id, ...docSnap.data() } as BlogPost;
+    const posts = await listBlogPosts();
+    const match = posts.find((post) => post.slug === slug);
+    return match ? mapBlogPost(match) : null;
   } catch (error) {
     console.error('Error fetching blog post by slug:', error);
     return null;
@@ -40,11 +45,14 @@ export async function fetchBlogPostBySlug(slug: string): Promise<BlogPost | null
 }
 
 export async function fetchPublishedReviews(): Promise<Review[]> {
-  if (!db) return [];
   try {
-    const snapshot = await getDocs(collection(db, 'reviews'));
-    const items = snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() } as Review));
-    return sortByPublishedDate(items.filter((review) => review.status === 'published'));
+    if (!process.env.DATABASE_URL) {
+      console.warn('DATABASE_URL not configured, skipping reviews');
+      return [];
+    }
+    const reviews = await listReviews();
+    const serializable = sortByPublishedDate(reviews.filter((review) => review.status === 'published'));
+    return serializable.map(mapReview);
   } catch (error) {
     console.error('Error fetching reviews:', error);
     return [];
@@ -52,15 +60,14 @@ export async function fetchPublishedReviews(): Promise<Review[]> {
 }
 
 export async function fetchReviewBySlug(slug: string): Promise<Review | null> {
-  if (!db) return null;
   try {
-    const reviewsQuery = query(collection(db, 'reviews'), where('slug', '==', slug), limitQuery(1));
-    const snapshot = await getDocs(reviewsQuery);
-    if (snapshot.empty) {
+    if (!process.env.DATABASE_URL) {
+      console.warn('DATABASE_URL not configured, skipping review');
       return null;
     }
-    const docSnap = snapshot.docs[0];
-    return { id: docSnap.id, ...docSnap.data() } as Review;
+    const reviews = await listReviews();
+    const match = reviews.find((review) => review.slug === slug);
+    return match ? mapReview(match) : null;
   } catch (error) {
     console.error('Error fetching review by slug:', error);
     return null;

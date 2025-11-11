@@ -1,136 +1,147 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { 
-  Dialog, 
-  DialogContent, 
-  DialogHeader, 
-  DialogTitle, 
-  DialogTrigger 
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
 } from '@/components/ui/dialog';
-import { Users, Plus, Edit, Trash2, Eye } from 'lucide-react';
-import { auth, db } from '@/lib/firebase';
-import { onAuthStateChanged } from 'firebase/auth';
-import { collection, query, onSnapshot, addDoc, updateDoc, deleteDoc, doc, Timestamp } from 'firebase/firestore';
+import { Users, Plus, Edit, Trash2 } from 'lucide-react';
 import AdminLoading from '@/components/admin/AdminLoading';
+import { useApp } from '@/components/app/AppProvider';
+import { useToast } from '@/hooks/use-toast';
+
+const ADMIN_EMAIL = 'admin@klusjeskoning.nl';
+
+type FormState = {
+  familyName: string;
+  city: string;
+  email: string;
+  familyCode: string;
+  password: string;
+};
+
+const initialForm: FormState = {
+  familyName: '',
+  city: '',
+  email: '',
+  familyCode: '',
+  password: '',
+};
 
 export default function FamiliesManagement() {
   const router = useRouter();
-  const [user, setUser] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
-  const [families, setFamilies] = useState<any[]>([]);
-  const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [currentFamily, setCurrentFamily] = useState<any>(null);
+  const {
+    family,
+    isLoading,
+    adminFamilies,
+    getAdminFamilies,
+    createAdminFamily,
+    updateAdminFamily,
+    deleteAdminFamily,
+  } = useApp();
+  const { toast } = useToast();
 
-  // Form state
-  const [familyName, setFamilyName] = useState('');
-  const [city, setCity] = useState('');
-  const [email, setEmail] = useState('');
-  const [familyCode, setFamilyCode] = useState('');
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [currentFamilyId, setCurrentFamilyId] = useState<string | null>(null);
+  const [form, setForm] = useState<FormState>(initialForm);
 
   useEffect(() => {
-    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
-      if (user && user.email === 'admin@klusjeskoning.nl') {
-        setUser(user);
-        // Load families from Firebase
-        loadFamilies();
-      } else {
-        router.push('/admin');
-      }
-      setLoading(false);
-    });
+    if (!family || family.email !== ADMIN_EMAIL) {
+      router.push('/admin');
+      return;
+    }
+    void getAdminFamilies();
+  }, [family, getAdminFamilies, router]);
 
-    return () => unsubscribeAuth();
-  }, [router]);
-
-  const loadFamilies = () => {
-    const q = query(collection(db, 'families'));
-    const unsubscribe = onSnapshot(q, (querySnapshot) => {
-      const familiesData: any[] = [];
-      querySnapshot.forEach((doc) => {
-        familiesData.push({
-          id: doc.id,
-          ...doc.data(),
-          createdAt: doc.data().createdAt?.toDate ? doc.data().createdAt.toDate() : new Date(),
-        });
-      });
-      setFamilies(familiesData);
-    });
-    return unsubscribe;
-  };
+  const families = useMemo(() => adminFamilies ?? [], [adminFamilies]);
 
   const handleCreateFamily = () => {
-    setCurrentFamily(null);
-    setFamilyName('');
-    setCity('');
-    setEmail('');
-    setFamilyCode('');
+    setCurrentFamilyId(null);
+    setForm(initialForm);
     setIsDialogOpen(true);
   };
 
-  const handleEditFamily = (family: any) => {
-    console.log('Edit button clicked for family:', family);
-    setCurrentFamily(family);
-    setFamilyName(family.familyName || '');
-    setCity(family.city || '');
-    setEmail(family.email || '');
-    setFamilyCode(family.familyCode || '');
+  const handleEditFamily = (familyId: string) => {
+    const familyToEdit = families.find((item) => item.id === familyId);
+    if (!familyToEdit) return;
+    setCurrentFamilyId(familyToEdit.id);
+    setForm({
+      familyName: familyToEdit.familyName ?? '',
+      city: familyToEdit.city ?? '',
+      email: familyToEdit.email ?? '',
+      familyCode: familyToEdit.familyCode ?? '',
+      password: '',
+    });
     setIsDialogOpen(true);
-    console.log('Dialog should be open now with family data');
+  };
+
+  const validateForm = () => {
+    if (!form.familyName || !form.city || !form.email) {
+      toast({
+        variant: 'destructive',
+        title: 'Ongeldige invoer',
+        description: 'Vul alle verplichte velden in.',
+      });
+      return false;
+    }
+    if (!currentFamilyId && !form.password) {
+      toast({
+        variant: 'destructive',
+        title: 'Wachtwoord vereist',
+        description: 'Geef een tijdelijk wachtwoord op voor het nieuwe gezin.',
+      });
+      return false;
+    }
+    return true;
   };
 
   const handleSaveFamily = async () => {
+    if (!validateForm()) return;
+
     try {
-      if (currentFamily) {
-        // Update existing family
-        const familyRef = doc(db, 'families', currentFamily.id);
-        await updateDoc(familyRef, {
-          familyName,
-          city,
-          email,
-          familyCode,
-          updatedAt: Timestamp.now(),
+      if (currentFamilyId) {
+        await updateAdminFamily({
+          familyId: currentFamilyId,
+          familyName: form.familyName,
+          city: form.city,
+          email: form.email,
+          familyCode: form.familyCode || undefined,
+          password: form.password || undefined,
         });
       } else {
-        // Create new family
-        await addDoc(collection(db, 'families'), {
-          familyName,
-          city,
-          email,
-          familyCode: familyCode || generateFamilyCode(),
-          childrenCount: 0,
-          createdAt: Timestamp.now(),
+        await createAdminFamily({
+          familyName: form.familyName,
+          city: form.city,
+          email: form.email,
+          password: form.password,
+          familyCode: form.familyCode || undefined,
         });
       }
-      // Close dialog
       setIsDialogOpen(false);
-    } catch (error) {
-      console.error('Error saving family:', error);
-      alert('Er is een fout opgetreden bij het opslaan van het gezin.');
+      setForm(initialForm);
+      setCurrentFamilyId(null);
+    } catch {
+      // Fouten worden al getoond via AppProvider
     }
   };
 
   const handleDeleteFamily = async (id: string) => {
-    if (confirm('Weet je zeker dat je dit gezin wilt verwijderen? Deze actie kan niet ongedaan worden gemaakt.')) {
-      try {
-        await deleteDoc(doc(db, 'families', id));
-      } catch (error) {
-        console.error('Error deleting family:', error);
-        alert('Er is een fout opgetreden bij het verwijderen van het gezin.');
-      }
+    if (!confirm('Weet je zeker dat je dit gezin wilt verwijderen? Deze actie kan niet ongedaan worden gemaakt.')) {
+      return;
     }
+    await deleteAdminFamily(id);
   };
 
-  const generateFamilyCode = () => {
-    return Math.random().toString(36).substring(2, 8).toUpperCase();
-  };
-
-  const formatDate = (date: Date) => {
+  const formatDate = (date: Date | undefined | null) => {
+    if (!date) return 'Onbekend';
     return new Intl.DateTimeFormat('nl-NL', {
       year: 'numeric',
       month: 'long',
@@ -138,11 +149,7 @@ export default function FamiliesManagement() {
     }).format(date);
   };
 
-  if (loading) {
-    return <AdminLoading />;
-  }
-
-  if (!user) {
+  if (!family || family.email !== ADMIN_EMAIL) {
     return <AdminLoading />;
   }
 
@@ -172,17 +179,15 @@ export default function FamiliesManagement() {
               </DialogTrigger>
               <DialogContent className="max-w-md">
                 <DialogHeader>
-                  <DialogTitle>
-                    {currentFamily ? 'Bewerk Gezin' : 'Nieuw Gezin'}
-                  </DialogTitle>
+                  <DialogTitle>{currentFamilyId ? 'Bewerk Gezin' : 'Nieuw Gezin'}</DialogTitle>
                 </DialogHeader>
                 <div className="space-y-4">
                   <div className="space-y-2">
                     <Label htmlFor="familyName">Gezinsnaam</Label>
                     <Input
                       id="familyName"
-                      value={familyName}
-                      onChange={(e) => setFamilyName(e.target.value)}
+                      value={form.familyName}
+                      onChange={(e) => setForm((prev) => ({ ...prev, familyName: e.target.value }))}
                       placeholder="Voer gezinsnaam in"
                     />
                   </div>
@@ -190,8 +195,8 @@ export default function FamiliesManagement() {
                     <Label htmlFor="city">Stad</Label>
                     <Input
                       id="city"
-                      value={city}
-                      onChange={(e) => setCity(e.target.value)}
+                      value={form.city}
+                      onChange={(e) => setForm((prev) => ({ ...prev, city: e.target.value }))}
                       placeholder="Voer stad in"
                     />
                   </div>
@@ -200,18 +205,28 @@ export default function FamiliesManagement() {
                     <Input
                       id="email"
                       type="email"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      placeholder="Voer e-mailadres in"
+                      value={form.email}
+                      onChange={(e) => setForm((prev) => ({ ...prev, email: e.target.value }))}
+                      placeholder="naam@example.com"
                     />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="familyCode">Gezinscode</Label>
                     <Input
                       id="familyCode"
-                      value={familyCode}
-                      onChange={(e) => setFamilyCode(e.target.value)}
-                      placeholder="Voer gezinscode in"
+                      value={form.familyCode}
+                      onChange={(e) => setForm((prev) => ({ ...prev, familyCode: e.target.value.toUpperCase() }))}
+                      placeholder="Bijv. AB12CD"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="password">{currentFamilyId ? 'Nieuw wachtwoord (optioneel)' : 'Tijdelijk wachtwoord'}</Label>
+                    <Input
+                      id="password"
+                      type="password"
+                      value={form.password}
+                      onChange={(e) => setForm((prev) => ({ ...prev, password: e.target.value }))}
+                      placeholder="Minimaal 6 tekens"
                     />
                   </div>
                 </div>
@@ -219,8 +234,8 @@ export default function FamiliesManagement() {
                   <Button variant="outline" onClick={() => setIsDialogOpen(false)}>
                     Annuleren
                   </Button>
-                  <Button onClick={handleSaveFamily}>
-                    {currentFamily ? 'Wijzigingen Opslaan' : 'Gezin Aanmaken'}
+                  <Button onClick={handleSaveFamily} disabled={isLoading}>
+                    Opslaan
                   </Button>
                 </div>
               </DialogContent>
@@ -228,58 +243,52 @@ export default function FamiliesManagement() {
           </CardHeader>
           <CardContent>
             <div className="overflow-x-auto">
-              <div className="min-w-full divide-y divide-gray-200">
-                <div className="bg-gray-50">
-                  <div className="grid grid-cols-12 gap-4 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    <div className="col-span-3">Gezinsnaam</div>
-                    <div className="col-span-2">Stad</div>
-                    <div className="col-span-3">E-mail</div>
-                    <div className="col-span-1">Kinderen</div>
-                    <div className="col-span-2">Aangemaakt</div>
-                    <div className="col-span-1 text-right">Acties</div>
-                  </div>
-                </div>
-                <div className="bg-white divide-y divide-gray-200">
-                  {families.map((family) => (
-                    <div key={family.id} className="grid grid-cols-12 gap-4 px-6 py-4">
-                      <div className="col-span-3 font-medium text-gray-900">
-                        {family.familyName}
-                        <div className="text-xs text-gray-500">Code: {family.familyCode}</div>
-                      </div>
-                      <div className="col-span-2 text-gray-500">{family.city}</div>
-                      <div className="col-span-3 text-gray-500">{family.email}</div>
-                      <div className="col-span-1 text-gray-500">{family.childrenCount || 0}</div>
-                      <div className="col-span-2 text-gray-500">
-                        {family.createdAt ? formatDate(family.createdAt) : 'Onbekend'}
-                      </div>
-                      <div className="col-span-1 flex justify-end space-x-1">
-                        <Button variant="outline" size="sm">
-                          <Eye className="h-4 w-4" />
-                        </Button>
-                        <Button 
-                          variant="outline" 
-                          size="sm" 
-                          onClick={() => handleEditFamily(family)}
-                        >
-                          <Edit className="h-4 w-4" />
-                        </Button>
-                        <Button 
-                          variant="outline" 
-                          size="sm" 
-                          onClick={() => handleDeleteFamily(family.id)}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Gezin</th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">E-mail</th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Code</th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Kinderen</th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Aangemaakt</th>
+                    <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Acties</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {families.map((fam) => {
+                    const createdAt = fam.createdAt?.toDate?.();
+                    return (
+                      <tr key={fam.id}>
+                        <td className="px-4 py-2">
+                          <div className="font-semibold">{fam.familyName}</div>
+                          <div className="text-xs text-muted-foreground">{fam.city}</div>
+                        </td>
+                        <td className="px-4 py-2 text-sm">{fam.email}</td>
+                        <td className="px-4 py-2 text-sm font-mono">{fam.familyCode}</td>
+                        <td className="px-4 py-2 text-sm">{fam.childrenCount}</td>
+                        <td className="px-4 py-2 text-sm">{formatDate(createdAt)}</td>
+                        <td className="px-4 py-2 text-right">
+                          <div className="flex justify-end space-x-2">
+                            <Button variant="ghost" size="icon" onClick={() => handleEditFamily(fam.id)}>
+                              <Edit className="h-4 w-4" />
+                            </Button>
+                            <Button variant="ghost" size="icon" onClick={() => handleDeleteFamily(fam.id)}>
+                              <Trash2 className="h-4 w-4 text-red-500" />
+                            </Button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                   {families.length === 0 && (
-                    <div className="col-span-12 text-center py-8 text-gray-500">
-                      Geen gezinnen gevonden. Maak je eerste gezin aan!
-                    </div>
+                    <tr>
+                      <td colSpan={6} className="px-4 py-8 text-center text-sm text-muted-foreground">
+                        Geen gezinnen gevonden.
+                      </td>
+                    </tr>
                   )}
-                </div>
-              </div>
+                </tbody>
+              </table>
             </div>
           </CardContent>
         </Card>

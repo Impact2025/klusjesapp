@@ -8,7 +8,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
-import { Timestamp } from 'firebase/firestore';
+import { Timestamp } from '@/lib/timestamp';
 import { useApp } from '../AppProvider';
 import type { Review } from '@/lib/types';
 

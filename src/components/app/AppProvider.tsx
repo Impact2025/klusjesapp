@@ -1,14 +1,26 @@
-'use client';
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+"use client";
+
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import confetti from 'canvas-confetti';
+
+import {
+  PLAN_DEFINITIONS,
+  getActivePlan,
+  canAddChild,
+  canAddChore,
+  isPremiumPlan,
+  choresThisMonth,
+  hasFeature as planHasFeature,
+  type PlanDefinition,
+  type PlanFeatureKey,
+} from '@/lib/plans';
 import type {
   Screen,
   Family,
   Child,
   Chore,
   Reward,
-  PendingReward,
   RewardType,
-  ChoreStatus,
   AdminStats,
   GoodCause,
   PlanTier,
@@ -18,35 +30,32 @@ import type {
   Review,
   PublishStatus,
 } from '@/lib/types';
-import { useToast } from "@/hooks/use-toast"
-import confetti from 'canvas-confetti';
-import { getFirebaseAuth, getFirebaseDb, getFirebaseStorage } from '@/lib/firebase';
-import { 
-    createUserWithEmailAndPassword, 
-    signInWithEmailAndPassword, 
-    signOut, 
-    onAuthStateChanged,
-    sendPasswordResetEmail,
-    type User as FirebaseUser
-} from 'firebase/auth';
-import { 
-    doc, 
-    setDoc, 
-    getDoc, 
-    collection, 
-    query, 
-    where, 
-    getDocs, 
-    updateDoc,
-    Timestamp,
-    arrayUnion,
-    arrayRemove,
-    addDoc,
-    deleteDoc
-} from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { PLAN_DEFINITIONS, getActivePlan, canAddChild, canAddChore, isPremiumPlan, choresThisMonth, hasFeature as planHasFeature, PlanDefinition, PlanFeatureKey } from '@/lib/plans';
+import { useToast } from '@/hooks/use-toast';
+import { Timestamp, serializeTimestamp } from '@/lib/timestamp';
+import {
+  callAppApi,
+  fetchCurrentFamily,
+  mapFamily,
+  mapGoodCause,
+  mapBlogPost,
+  mapReview,
+  mapAdminStats,
+  mapAdminFamily,
+  mapFinancialOverview,
+  mapSubscriptionEvent,
+  type AdminFamilySummary,
+  type SubscriptionEvent,
+} from '@/lib/api/app-client';
+import type { SerializableAdminFamily, SerializableSubscriptionEvent } from '@/lib/api/types';
+import type {
+  SerializableFamily,
+  SerializableGoodCause,
+  SerializableBlogPost,
+  SerializableReview,
+  AdminStatsPayload,
+} from '@/lib/api/types';
 
+type NotificationType = 'info' | 'success' | 'destructive';
 
 type BlogPostInput = {
   title: string;
@@ -74,33 +83,32 @@ type ReviewInput = {
   publishedAt?: Timestamp | null;
 };
 
-type NotificationPayload =
-  | {
-      type: 'welcome_parent';
-      to: string;
-      data: { familyName: string; familyCode: string };
-    }
-  | {
-      type: 'chore_submitted';
-      to: string;
-      data: { parentName: string; childName: string; choreName: string; points: number };
-    }
-  | {
-      type: 'reward_redeemed';
-      to: string;
-      data: { parentName: string; childName: string; rewardName: string; points: number };
-    }
-  | {
-      type: 'admin_new_registration';
-      to: string;
-      data: { 
-        familyName: string;
-        email: string;
-        city: string;
-        familyCode: string;
-        timestamp: string;
-      };
-    };
+type AdminFamilyInput = {
+  familyName: string;
+  city: string;
+  email: string;
+  password: string;
+  familyCode?: string;
+};
+
+type AdminFamilyUpdateInput = {
+  familyId: string;
+  familyName?: string;
+  city?: string;
+  email?: string;
+  password?: string;
+  familyCode?: string;
+};
+
+type FinancialOverview = {
+  stats: {
+    totalRevenue: number;
+    activeSubscriptions: number;
+    monthlyGrowth: number;
+    avgSubscriptionValue: number;
+  };
+  recentSubscriptions: SubscriptionEvent[];
+};
 
 interface AppContextType {
   currentScreen: Screen;
@@ -117,15 +125,18 @@ interface AppContextType {
   goodCauses: GoodCause[] | null;
   blogPosts: BlogPost[] | null;
   reviews: Review[] | null;
-  loginParent: (email: string, password_not_used: string) => Promise<void>;
-  registerFamily: (familyName: string, city: string, email: string, password_not_used: string) => Promise<void>;
-  logout: () => void;
+  adminFamilies: AdminFamilySummary[] | null;
+  financialOverview: FinancialOverview | null;
+  loginParent: (email: string, password: string) => Promise<void>;
+  loginAdmin: (email: string, password: string) => Promise<void>;
+  registerFamily: (familyName: string, city: string, email: string, password: string) => Promise<void>;
+  logout: () => Promise<void>;
   loginChildStep1: (familyCode: string) => Promise<void>;
   selectChildProfile: (childId: string) => void;
   submitPin: (pin: string) => void;
   addChild: (name: string, pin: string, avatar: string) => Promise<void>;
   updateChild: (childId: string, updates: Partial<Child>) => Promise<void>;
-  addChore: (name:string, points: number, assignedTo: string[]) => Promise<void>;
+  addChore: (name: string, points: number, assignedTo: string[]) => Promise<void>;
   updateChore: (choreId: string, updates: Partial<Chore>) => Promise<void>;
   addReward: (name: string, points: number, type: RewardType, assignedTo: string[]) => Promise<void>;
   updateReward: (rewardId: string, updates: Partial<Reward>) => Promise<void>;
@@ -136,11 +147,12 @@ interface AppContextType {
   redeemReward: (rewardId: string) => Promise<void>;
   markRewardAsGiven: (pendingRewardId: string) => Promise<void>;
   saveRecoveryEmail: (email: string) => Promise<void>;
-  recoverFamilyCode: (email: string) => Promise<void>; // This now just resets password
+  recoverFamilyCode: (email: string) => Promise<void>;
   getAdminStats: () => Promise<void>;
   getGoodCauses: () => Promise<void>;
   addGoodCause: (cause: Omit<GoodCause, 'id'>) => Promise<void>;
   updateGoodCause: (causeId: string, updates: Partial<Omit<GoodCause, 'id'>>) => Promise<void>;
+  deleteGoodCause: (causeId: string) => Promise<void>;
   getBlogPosts: () => Promise<void>;
   createBlogPost: (data: BlogPostInput) => Promise<void>;
   updateBlogPost: (postId: string, data: BlogPostInput) => Promise<void>;
@@ -151,15 +163,16 @@ interface AppContextType {
   deleteReview: (reviewId: string) => Promise<void>;
   startPremiumCheckout: (interval: BillingInterval) => Promise<string | null>;
   confirmPremiumCheckout: (orderId: string, interval: BillingInterval) => Promise<boolean>;
+  getAdminFamilies: () => Promise<void>;
+  createAdminFamily: (data: AdminFamilyInput) => Promise<void>;
+  updateAdminFamily: (data: AdminFamilyUpdateInput) => Promise<void>;
+  deleteAdminFamily: (familyId: string) => Promise<void>;
+  getFinancialOverview: () => Promise<void>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
-const generateFamilyCode = () => (Math.random().toString(36).substring(2, 8)).toUpperCase();
-
-// Initialize with a safe default that doesn't require Firebase
 const getInitialScreen = (): Screen => {
-  // Only check window.location on client-side
   if (typeof window !== 'undefined' && typeof window.location !== 'undefined') {
     if (window.location.pathname === '/admin') {
       return 'adminLogin';
@@ -168,846 +181,501 @@ const getInitialScreen = (): Screen => {
   return 'landing';
 };
 
+const useNotification = () => {
+  const { toast } = useToast();
+  return useCallback(
+    (type: NotificationType, title: string, description: string) => {
+      toast({ variant: type === 'destructive' ? 'destructive' : 'default', title, description });
+    },
+    [toast]
+  );
+};
+
 export function AppProvider({ children }: { children: React.ReactNode }) {
-  // Initialize Firebase services lazily
-  const auth = getFirebaseAuth();
-  const db = getFirebaseDb();
-  const storage = getFirebaseStorage();
+  const notify = useNotification();
 
   const [currentScreen, setScreen] = useState<Screen>(() => getInitialScreen());
-  const [isLoading, setIsLoading] = useState(false); // Start with false to prevent SSR issues
+  const [isLoading, setIsLoading] = useState(false);
   const [family, setFamily] = useState<Family | null>(null);
   const [user, setUser] = useState<Child | null>(null);
   const [adminStats, setAdminStats] = useState<AdminStats | null>(null);
   const [goodCauses, setGoodCauses] = useState<GoodCause[] | null>(null);
   const [blogPosts, setBlogPosts] = useState<BlogPost[] | null>(null);
   const [reviews, setReviews] = useState<Review[] | null>(null);
-  const { toast } = useToast();
-  const activePlan = getActivePlan(family?.subscription as SubscriptionInfo | undefined);
-  const planDefinition: PlanDefinition = PLAN_DEFINITIONS[activePlan];
+  const [adminFamilies, setAdminFamilies] = useState<AdminFamilySummary[] | null>(null);
+  const [financialOverview, setFinancialOverview] = useState<FinancialOverview | null>(null);
+
+  const activePlan = useMemo(() => getActivePlan(family?.subscription as SubscriptionInfo | undefined), [family?.subscription]);
+  const planDefinition = PLAN_DEFINITIONS[activePlan];
   const isPremium = isPremiumPlan(family?.subscription as SubscriptionInfo | undefined);
   const monthlyChoreUsage = choresThisMonth(family);
-  const canAccessFeature = useCallback((feature: PlanFeatureKey) => planHasFeature(family?.subscription as SubscriptionInfo | undefined, feature), [family?.subscription]);
+  const canAccessFeature = useCallback(
+    (feature: PlanFeatureKey) => planHasFeature(family?.subscription as SubscriptionInfo | undefined, feature),
+    [family?.subscription]
+  );
 
-  const sendNotification = useCallback(async (payload: NotificationPayload) => {
-    try {
-      await fetch('/api/notifications/send', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-    } catch (error) {
-      console.error('Failed to send notification', error);
+  const applyFamily = useCallback((payload: SerializableFamily | null) => {
+    if (payload) {
+      const mapped = mapFamily(payload);
+      setFamily(mapped);
+      if (user) {
+        const updatedUser = mapped.children.find((child) => child.id === user.id);
+        setUser(updatedUser ?? null);
+      }
+    } else {
+      setFamily(null);
+      setUser(null);
     }
-  }, []);
-  
+  }, [user]);
+
+  const refreshFamily = useCallback(async () => {
+    try {
+      const current = await fetchCurrentFamily();
+      applyFamily(current);
+      if (current) {
+        setScreen((prev) => (prev === 'landing' || prev === 'parentLogin' ? 'parentDashboard' : prev));
+      }
+    } catch (error) {
+      console.error('refreshFamily error', error);
+      applyFamily(null);
+    }
+  }, [applyFamily]);
+
   useEffect(() => {
-    // This effect runs only on the client side and handles the initial screen logic.
-    // This avoids hydration errors.
+    void refreshFamily();
+  }, [refreshFamily]);
+
+  useEffect(() => {
     if (typeof window !== 'undefined' && window.location.pathname === '/admin' && currentScreen !== 'adminLogin' && currentScreen !== 'adminDashboard') {
       setScreen('adminLogin');
     }
   }, [currentScreen]);
 
-  const getAdminStats = useCallback(async () => {
-    setIsLoading(true);
-    try {
-        if (!db) {
-            console.error("Firestore is not initialized");
-            toast({ variant: 'destructive', title: 'Fout', description: 'Database niet beschikbaar.' });
-            return;
-        }
-        const familiesRef = collection(db, "families");
-        const querySnapshot = await getDocs(familiesRef);
-        
-        let totalFamilies = 0;
-        let totalChildren = 0;
-        let totalPointsEver = 0;
-        let totalDonationPoints = 0;
-
-        querySnapshot.forEach(doc => {
-            const familyData = doc.data() as Family;
-            totalFamilies++;
-            totalChildren += familyData.children.length;
-            familyData.children.forEach(child => {
-                totalPointsEver += child.totalPointsEver || 0;
-            });
-            familyData.pendingRewards.forEach(pr => {
-                const reward = familyData.rewards.find(r => r.id === pr.rewardId);
-                if(reward?.type === 'donation') {
-                    totalDonationPoints += pr.points;
-                }
-            });
-        });
-        
-        setAdminStats({
-            totalFamilies,
-            totalChildren,
-            totalPointsEver,
-            totalDonationPoints
-        });
-
-    } catch (error) {
-        console.error("Error fetching admin stats:", error);
-        toast({ variant: 'destructive', title: 'Fout', description: 'Kon admin-statistieken niet laden.' });
-    } finally {
+  const handleAction = useCallback(
+    async <T extends object>(action: string, payload: unknown, onSuccess?: (data: T) => void) => {
+      setIsLoading(true);
+      try {
+        const data = await callAppApi<T>(action, payload);
+        onSuccess?.(data);
+        return data;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Er ging iets mis.';
+        notify('destructive', 'Fout', message);
+        throw error;
+      } finally {
         setIsLoading(false);
-    }
-  }, [toast]);
-
-  const getGoodCauses = useCallback(async () => {
-    setIsLoading(true);
-    try {
-      if (!db) {
-        console.error("Firestore is not initialized");
-        toast({ variant: 'destructive', title: 'Fout', description: 'Database niet beschikbaar.' });
-        return;
       }
-      const causesRef = collection(db, "goodCauses");
-      const querySnapshot = await getDocs(causesRef);
-      const causes = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as GoodCause));
-      setGoodCauses(causes);
-    } catch (error) {
-      console.error("Error fetching good causes:", error);
-      toast({ variant: 'destructive', title: 'Fout', description: 'Kon goede doelen niet laden.' });
-    } finally {
-      setIsLoading(false);
-    }
-  }, [toast]);
+    },
+    [notify]
+  );
 
-  const sortByPublishedDate = <T extends { publishedAt?: Timestamp | null; createdAt: Timestamp }>(
-    items: T[]
-  ) =>
-    [...items].sort((a, b) => {
-      const aDate = a.publishedAt ?? a.createdAt;
-      const bDate = b.publishedAt ?? b.createdAt;
-      return (bDate?.toMillis() ?? 0) - (aDate?.toMillis() ?? 0);
+  const loginParent = useCallback(async (email: string, password: string) => {
+    await handleAction<{ family: SerializableFamily }>('loginParent', { email, password }, ({ family }) => {
+      applyFamily(family ?? null);
+      setScreen('parentDashboard');
+      notify('success', 'Welkom terug!', 'Je bent succesvol ingelogd.');
     });
+  }, [applyFamily, handleAction, notify]);
 
-  const getBlogPosts = useCallback(async () => {
-    setIsLoading(true);
-    try {
-      if (!db) {
-        console.error("Firestore is not initialized");
-        toast({ variant: 'destructive', title: 'Fout', description: 'Database niet beschikbaar.' });
-        return;
-      }
-      const snapshot = await getDocs(collection(db, 'blogPosts'));
-      const posts = snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() } as BlogPost));
-      setBlogPosts(sortByPublishedDate(posts));
-    } catch (error) {
-      console.error('Error fetching blog posts:', error);
-      toast({ variant: 'destructive', title: 'Fout', description: 'Kon blogposts niet laden.' });
-    } finally {
-      setIsLoading(false);
-    }
-  }, [toast]);
-
-  const createBlogPost = useCallback(
-    async (data: BlogPostInput) => {
-      setIsLoading(true);
-      try {
-        if (!db) {
-          console.error("Firestore is not initialized");
-          toast({ variant: 'destructive', title: 'Fout', description: 'Database niet beschikbaar.' });
-          return;
-        }
-        const now = Timestamp.now();
-        const payload = {
-          ...data,
-          coverImageUrl: data.coverImageUrl || null,
-          seoTitle: data.seoTitle || null,
-          seoDescription: data.seoDescription || null,
-          tags: data.tags,
-          createdAt: now,
-          updatedAt: now,
-          publishedAt: data.status === 'published' ? data.publishedAt ?? now : null,
-        };
-        await addDoc(collection(db, 'blogPosts'), payload);
-        toast({ title: 'Succes', description: 'Blogpost opgeslagen.' });
-        await getBlogPosts();
-      } catch (error) {
-        console.error('Error creating blog post:', error);
-        toast({ variant: 'destructive', title: 'Fout', description: 'Kon blogpost niet opslaan.' });
-      } finally {
-        setIsLoading(false);
-      }
-    },
-    [getBlogPosts, toast]
-  );
-
-  const updateBlogPost = useCallback(
-    async (postId: string, data: BlogPostInput) => {
-      setIsLoading(true);
-      try {
-        if (!db) {
-          console.error("Firestore is not initialized");
-          toast({ variant: 'destructive', title: 'Fout', description: 'Database niet beschikbaar.' });
-          return;
-        }
-        const now = Timestamp.now();
-        const payload = {
-          ...data,
-          coverImageUrl: data.coverImageUrl || null,
-          seoTitle: data.seoTitle || null,
-          seoDescription: data.seoDescription || null,
-          updatedAt: now,
-          publishedAt: data.status === 'published' ? data.publishedAt ?? now : null,
-        };
-
-        await updateDoc(doc(db, 'blogPosts', postId), payload);
-        toast({ title: 'Succes', description: 'Blogpost bijgewerkt.' });
-        await getBlogPosts();
-      } catch (error) {
-        console.error('Error updating blog post:', error);
-        toast({ variant: 'destructive', title: 'Fout', description: 'Kon blogpost niet bijwerken.' });
-      } finally {
-        setIsLoading(false);
-      }
-    },
-    [getBlogPosts, toast]
-  );
-
-  const deleteBlogPost = useCallback(
-    async (postId: string) => {
-      setIsLoading(true);
-      try {
-        if (!db) {
-          console.error("Firestore is not initialized");
-          toast({ variant: 'destructive', title: 'Fout', description: 'Database niet beschikbaar.' });
-          return;
-        }
-        await deleteDoc(doc(db, 'blogPosts', postId));
-        toast({ title: 'Verwijderd', description: 'Blogpost verwijderd.' });
-        await getBlogPosts();
-      } catch (error) {
-        console.error('Error deleting blog post:', error);
-        toast({ variant: 'destructive', title: 'Fout', description: 'Kon blogpost niet verwijderen.' });
-      } finally {
-        setIsLoading(false);
-      }
-    },
-    [getBlogPosts, toast]
-  );
-
-  const getReviews = useCallback(async () => {
-    setIsLoading(true);
-    try {
-      if (!db) {
-        console.error("Firestore is not initialized");
-        toast({ variant: 'destructive', title: 'Fout', description: 'Database niet beschikbaar.' });
-        return;
-      }
-      const snapshot = await getDocs(collection(db, 'reviews'));
-      const items = snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() } as Review));
-      setReviews(sortByPublishedDate(items));
-    } catch (error) {
-      console.error('Error fetching reviews:', error);
-      toast({ variant: 'destructive', title: 'Fout', description: 'Kon reviews niet laden.' });
-    } finally {
-      setIsLoading(false);
-    }
-  }, [toast]);
-
-  const createReview = useCallback(
-    async (data: ReviewInput) => {
-      setIsLoading(true);
-      try {
-        if (!db) {
-          console.error("Firestore is not initialized");
-          toast({ variant: 'destructive', title: 'Fout', description: 'Database niet beschikbaar.' });
-          return;
-        }
-        const now = Timestamp.now();
-        const payload = {
-          ...data,
-          seoTitle: data.seoTitle || null,
-          seoDescription: data.seoDescription || null,
-          createdAt: now,
-          updatedAt: now,
-          publishedAt: data.status === 'published' ? data.publishedAt ?? now : null,
-        };
-        await addDoc(collection(db, 'reviews'), payload);
-        toast({ title: 'Succes', description: 'Review opgeslagen.' });
-        await getReviews();
-      } catch (error) {
-        console.error('Error creating review:', error);
-        toast({ variant: 'destructive', title: 'Fout', description: 'Kon review niet opslaan.' });
-      } finally {
-        setIsLoading(false);
-      }
-    },
-    [getReviews, toast]
-  );
-
-  const updateReview = useCallback(
-    async (reviewId: string, data: ReviewInput) => {
-      setIsLoading(true);
-      try {
-        if (!db) {
-          console.error("Firestore is not initialized");
-          toast({ variant: 'destructive', title: 'Fout', description: 'Database niet beschikbaar.' });
-          return;
-        }
-        const now = Timestamp.now();
-        const payload = {
-          ...data,
-          seoTitle: data.seoTitle || null,
-          seoDescription: data.seoDescription || null,
-          updatedAt: now,
-          publishedAt: data.status === 'published' ? data.publishedAt ?? now : null,
-        };
-
-        await updateDoc(doc(db, 'reviews', reviewId), payload);
-        toast({ title: 'Succes', description: 'Review bijgewerkt.' });
-        await getReviews();
-      } catch (error) {
-        console.error('Error updating review:', error);
-        toast({ variant: 'destructive', title: 'Fout', description: 'Kon review niet bijwerken.' });
-      } finally {
-        setIsLoading(false);
-      }
-    },
-    [getReviews, toast]
-  );
-
-  const deleteReview = useCallback(
-    async (reviewId: string) => {
-      setIsLoading(true);
-      try {
-        if (!db) {
-          console.error("Firestore is not initialized");
-          toast({ variant: 'destructive', title: 'Fout', description: 'Database niet beschikbaar.' });
-          return;
-        }
-        await deleteDoc(doc(db, 'reviews', reviewId));
-        toast({ title: 'Verwijderd', description: 'Review verwijderd.' });
-        await getReviews();
-      } catch (error) {
-        console.error('Error deleting review:', error);
-        toast({ variant: 'destructive', title: 'Fout', description: 'Kon review niet verwijderen.' });
-      } finally {
-        setIsLoading(false);
-      }
-    },
-    [getReviews, toast]
-  );
-  
-  
-  useEffect(() => {
-    const fetchFamilyData = async (familyId: string) => {
-        setIsLoading(true);
-        try {
-            if (!db) {
-              console.error("Firestore is not initialized");
-              setScreen('landing');
-              return;
-            }
-            const familyDocRef = doc(db, 'families', familyId);
-            const familyDocSnap = await getDoc(familyDocRef);
-            if (familyDocSnap.exists()) {
-                const familyData = { id: familyDocSnap.id, ...familyDocSnap.data() } as Family;
-                setFamily(familyData);
-                setScreen('parentDashboard');
-            } else {
-                console.log("No such family document!");
-                setFamily(null);
-                await signOut(auth);
-                setScreen('landing');
-            }
-        } catch (error) {
-            console.error("Error fetching family data:", error);
-            setFamily(null);
-            setScreen('landing');
-        } finally {
-            setIsLoading(false);
-        }
-    };
-
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-        setIsLoading(true);
-        if (user) {
-          getGoodCauses(); // Fetch good causes for any logged-in user
-          if(user.email === 'admin@klusjeskoning.nl') {
-            setScreen('adminDashboard');
-            getAdminStats();
-            getBlogPosts();
-            getReviews();
-            setIsLoading(false);
-          } else {
-            fetchFamilyData(user.uid);
-          }
-        } else {
-            setFamily(null);
-            setUser(null);
-            setAdminStats(null);
-            setGoodCauses(null);
-            setBlogPosts(null);
-            setReviews(null);
-            // Check if we're on the admin page
-            if (typeof window !== 'undefined' && window.location.pathname === '/admin') {
-              setScreen('adminLogin');
-            } else {
-              setScreen('landing');
-            }
-            setIsLoading(false);
-        }
+  const loginAdmin = useCallback(async (email: string, password: string) => {
+    await handleAction<{ family: SerializableFamily }>('adminLogin', { email, password }, ({ family }) => {
+      applyFamily(family ?? null);
+      setScreen('adminDashboard');
+      notify('success', 'Welkom terug!', 'Je bent ingelogd als admin.');
     });
+  }, [applyFamily, handleAction, notify]);
 
-    return () => unsubscribe();
-  }, [getAdminStats, getGoodCauses, getBlogPosts, getReviews]);
-
-
+  const registerFamily = useCallback(async (familyName: string, city: string, email: string, password: string) => {
+    await handleAction<{ family: SerializableFamily }>('registerFamily', { familyName, city, email, password }, ({ family }) => {
+      applyFamily(family ?? null);
+      setScreen('parentDashboard');
+      notify('success', 'Welkom!', 'Je gezin is aangemaakt. Controleer je e-mail voor de gezinscode.');
+    });
+  }, [applyFamily, handleAction, notify]);
 
   const logout = useCallback(async () => {
-    const isAdmin = auth.currentUser?.email === 'admin@klusjeskoning.nl';
-    await signOut(auth);
-    setFamily(null);
-    setUser(null);
-    setAdminStats(null);
-    setGoodCauses(null);
-    setBlogPosts(null);
-    setReviews(null);
-    if(isAdmin || window.location.pathname === '/admin') {
-      setScreen('adminLogin');
-    } else {
+    await handleAction('logout', undefined, () => {
+      applyFamily(null);
       setScreen('landing');
-    }
-  }, []);
-
-  const loginParent = async (email: string, password) => {
-    setIsLoading(true);
-    try {
-        await signInWithEmailAndPassword(auth, email, password);
-        // Auth state change will trigger screen change and loading state update
-    } catch (error) {
-        toast({ variant: "destructive", title: "Fout", description: "E-mail of wachtwoord onjuist." });
-        setIsLoading(false);
-    }
-  };
-  
-  const registerFamily = async (familyName: string, city: string, email: string, password) => {
-    setIsLoading(true);
-    try {
-      if (!db) {
-        console.error("Firestore is not initialized");
-        toast({ variant: "destructive", title: "Fout", description: 'Database niet beschikbaar.' });
-        return;
-      }
-      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-      const familyCode = generateFamilyCode();
-      const newFamily: Family = {
-          id: userCredential.user.uid,
-          familyCode,
-          familyName,
-          city,
-          email,
-          createdAt: Timestamp.now(),
-          recoveryEmail: email,
-          children: [], chores: [], rewards: [], pendingRewards: [],
-      };
-      await setDoc(doc(db, 'families', newFamily.id), newFamily);
-      
-      // Send welcome email to the new family
-      try {
-        await sendNotification({
-          type: 'welcome_parent',
-          to: email,
-          data: {
-            familyName,
-            familyCode
-          }
-        });
-      } catch (emailError) {
-        console.error("Failed to send welcome email:", emailError);
-      }
-      
-      // Send notification to admin about new registration
-      try {
-        const adminEmail = process.env.SENDGRID_FROM_EMAIL || 'info@klusjeskoning.app';
-        if (adminEmail) {
-          await sendNotification({
-            type: 'admin_new_registration',
-            to: adminEmail,
-            data: {
-              familyName,
-              email,
-              city,
-              familyCode,
-              timestamp: new Date().toLocaleString('nl-NL')
-            }
-          });
-        }
-      } catch (adminEmailError) {
-        console.error("Failed to send admin notification:", adminEmailError);
-      }
-      
-      // Let the onAuthStateChanged handle the state update
-      toast({ title: "Welkom!", description: "Je gezin is aangemaakt. Check je e-mail voor je gezinscode!" });
-    } catch (error) {
-        console.error("Error registering family: ", error);
-        toast({ variant: "destructive", title: "Registratiefout", description: "Er is iets misgegaan." });
-        setIsLoading(false);
-    }
-  };
-
-  const loginChildStep1 = async (familyCode: string) => {
-    setIsLoading(true);
-    if (!db) {
-      console.error("Firestore is not initialized");
-      toast({ variant: 'destructive', title: 'Fout', description: 'Database niet beschikbaar.' });
-      setIsLoading(false);
-      return;
-    }
-    const familiesRef = collection(db, "families");
-    const q = query(familiesRef, where("familyCode", "==", familyCode.toUpperCase()));
-    try {
-        const querySnapshot = await getDocs(q);
-        if (!querySnapshot.empty) {
-            const familyDoc = querySnapshot.docs[0];
-            const familyData = {id: familyDoc.id, ...familyDoc.data()} as Family;
-            setFamily(familyData);
-            setScreen('childProfileSelect');
-            await getGoodCauses();
-        } else {
-            toast({ variant: "destructive", title: "Fout", description: "Gezinscode niet gevonden." });
-        }
-    } catch (error) {
-        console.error("Error finding family: ", error);
-        toast({ variant: "destructive", title: "Fout", description: "Kon gezin niet opzoeken." });
-    } finally {
-        setIsLoading(false);
-    }
-  };
-
-  const selectChildProfile = (childId: string) => {
-      if (family) {
-        const selectedChild = family.children.find(c => c.id === childId);
-        if (selectedChild) {
-            setUser(selectedChild);
-            setScreen('childPin');
-        }
-      }
-  };
-
-  const submitPin = (pin: string) => {
-      if (user && user.pin === pin) {
-          setScreen('childDashboard');
-      } else {
-          toast({ variant: "destructive", title: "Fout", description: "Pincode is fout! Probeer het opnieuw." });
-      }
-  };
-  
-  const refreshFamilyData = useCallback(async () => {
-    if (!db) {
-      console.error("Firestore is not initialized");
-      return;
-    }
-    if (family?.id) {
-        const familyDocRef = doc(db, 'families', family.id);
-        const familyDocSnap = await getDoc(familyDocRef);
-        if (familyDocSnap.exists()) {
-            setFamily({ id: familyDocSnap.id, ...familyDocSnap.data() } as Family);
-        }
-    }
-  }, [family?.id]);
-
-  const updateFamilyDoc = useCallback(async (updates: Record<string, unknown>) => {
-      if (!family || !db) return;
-      const familyDocRef = doc(db, 'families', family.id);
-      await updateDoc(familyDocRef, updates);
-      await refreshFamilyData();
-  }, [family, refreshFamilyData]);
-
-  const addChild = async (name: string, pin: string, avatar: string) => {
-      if(!family) return;
-      const gate = canAddChild(family);
-      if (!gate.allowed) {
-        toast({ variant: "destructive", title: "Upgrade nodig", description: gate.reason || 'Het maximum aantal kinderen is bereikt.' });
-        return;
-      }
-      setIsLoading(true);
-      const newChild: Child = { id: `child${Date.now()}`, name, pin, avatar, points: 0, totalPointsEver: 0 };
-      await updateFamilyDoc({ children: arrayUnion(newChild) });
-      toast({ title: "Succes", description: `${name} is toegevoegd!` });
-      setIsLoading(false);
-  };
-  
-  const updateChild = async (childId: string, updates: Partial<Child>) => {
-    if(!family) return;
-    setIsLoading(true);
-    const updatedChildren = family.children.map(c => c.id === childId ? { ...c, ...updates } : c);
-    await updateFamilyDoc({ children: updatedChildren });
-    toast({ title: "Succes", description: `Gegevens van kind bijgewerkt!` });
-    setIsLoading(false);
-  };
-
-  const addChore = async (name: string, points: number, assignedTo: string[]) => {
-      if(!family) return;
-      const gate = canAddChore(family);
-      if (!gate.allowed) {
-        toast({ variant: "destructive", title: "Upgrade nodig", description: gate.reason || 'Je hebt de limiet voor deze maand bereikt.' });
-        return;
-      }
-      setIsLoading(true);
-      const newChore: Chore = { id: `chore${Date.now()}`, name, points, assignedTo, status: 'available', createdAt: Timestamp.now() };
-      await updateFamilyDoc({ chores: arrayUnion(newChore) });
-      toast({ title: "Succes", description: "Klusje toegevoegd!" });
-      setIsLoading(false);
-  };
-
-  const updateChore = async (choreId: string, updates: Partial<Chore>) => {
-    if(!family) return;
-    setIsLoading(true);
-    const updatedChores = family.chores.map(c => c.id === choreId ? { ...c, ...updates } : c);
-    await updateFamilyDoc({ chores: updatedChores });
-    toast({ title: "Succes", description: `Klusje bijgewerkt!` });
-    setIsLoading(false);
-  };
-  
-  const addReward = async (name: string, points: number, type: RewardType, assignedTo: string[]) => {
-      if(!family) return;
-      if (type === 'donation' && !planHasFeature(family.subscription as SubscriptionInfo | undefined, 'donations')) {
-        toast({ variant: "destructive", title: "Premium nodig", description: 'Donaties zijn onderdeel van het Gezin+ abonnement.' });
-        return;
-      }
-      setIsLoading(true);
-      const newReward: Reward = { id: `reward${Date.now()}`, name, points, type, assignedTo };
-      await updateFamilyDoc({ rewards: arrayUnion(newReward) });
-      toast({ title: "Succes", description: "Beloning toegevoegd!" });
-      setIsLoading(false);
-  };
-
-  const updateReward = async (rewardId: string, updates: Partial<Reward>) => {
-    if(!family) return;
-    setIsLoading(true);
-    const updatedRewards = family.rewards.map(r => r.id === rewardId ? { ...r, ...updates } : r);
-    await updateFamilyDoc({ rewards: updatedRewards });
-    toast({ title: "Succes", description: `Beloning bijgewerkt!` });
-    setIsLoading(false);
-  };
-
-  const approveChore = async (choreId: string) => {
-      if(!family || !db) return;
-      setIsLoading(true);
-      
-      const familyDocRef = doc(db, 'families', family.id);
-      const familyDocSnap = await getDoc(familyDocRef);
-      const currentFamilyData = familyDocSnap.data() as Family;
-
-      const chore = currentFamilyData.chores.find(c => c.id === choreId);
-      const child = currentFamilyData.children.find(c => c.id === chore?.submittedBy);
-
-      if (chore && child) {
-          const updatedChores = currentFamilyData.chores.map(c => c.id === choreId ? { ...c, status: 'approved' } : c);
-          const updatedChildren = currentFamilyData.children.map(c => c.id === child.id ? { ...c, points: c.points + chore.points, totalPointsEver: c.totalPointsEver + chore.points } : c);
-          
-          await updateDoc(familyDocRef, { chores: updatedChores, children: updatedChildren });
-          await refreshFamilyData();
-          toast({ title: "Succes", description: "Klusje goedgekeurd!" });
-      }
-      setIsLoading(false);
-  };
-  
-  const rejectChore = async (choreId: string) => {
-      if(!family) return;
-      setIsLoading(true);
-      const updatedChores = family.chores.map(c => c.id === choreId ? { ...c, status: 'available', submittedBy: null, emotion: null, submittedAt: null, photoUrl: null } : c);
-      await updateFamilyDoc({ chores: updatedChores });
-      toast({ title: "Info", description: "Klusje afgekeurd en weer beschikbaar." });
-      setIsLoading(false);
-  };
-  
-  const deleteItem = async (collection: 'children' | 'chores' | 'rewards', itemId: string) => {
-      if(!family) return;
-      setIsLoading(true);
-      const itemToDelete = family[collection].find(item => item.id === itemId);
-      if(itemToDelete) {
-          await updateFamilyDoc({ [collection]: arrayRemove(itemToDelete) });
-          toast({ title: "Succes", description: "Item verwijderd." });
-      }
-      setIsLoading(false);
-  };
-  
-  const submitChoreForApproval = (choreId: string, emotion: string, photoFile: File | null): Promise<void> => {
-    return new Promise(async (resolve, reject) => {
-        if (!user || !family || !db) {
-            return reject(new Error("User, family, or database not found"));
-        }
-
-        try {
-            let photoUrl: string | null = null;
-            if (photoFile) {
-                const storageRef = ref(storage, `chore-proof/${family.id}/${choreId}-${Date.now()}.jpg`);
-                const snapshot = await uploadBytes(storageRef, photoFile);
-                photoUrl = await getDownloadURL(snapshot.ref);
-            }
-    
-            const familyDocRef = doc(db, 'families', family.id);
-            const familyDocSnap = await getDoc(familyDocRef);
-            if (!familyDocSnap.exists()) {
-                 return reject(new Error("Family document not found."));
-            }
-            const currentFamilyData = familyDocSnap.data() as Family;
-    
-            const updatedChores = currentFamilyData.chores.map(c => 
-                c.id === choreId 
-                ? {
-                    ...c,
-                    status: 'submitted' as ChoreStatus,
-                    submittedBy: user.id,
-                    submittedAt: Timestamp.now(),
-                    emotion: emotion,
-                    photoUrl: photoUrl
-                  }
-                : c
-            );
-    
-            await updateDoc(familyDocRef, { chores: updatedChores });
-            await refreshFamilyData();
-            const parentEmail = currentFamilyData.email;
-            const chore = currentFamilyData.chores.find(c => c.id === choreId);
-            if (parentEmail && chore && user) {
-                void sendNotification({
-                    type: 'chore_submitted',
-                    to: parentEmail,
-                    data: {
-                        parentName: currentFamilyData.familyName,
-                        childName: user.name,
-                        choreName: chore.name,
-                        points: chore.points,
-                    },
-                });
-            }
-            confetti({ particleCount: 150, spread: 120, origin: { y: 0.6 } });
-            resolve();
-    
-        } catch (e: any) {
-            console.error("Error submitting chore: ", e);
-            reject(e);
-        }
+      setAdminFamilies(null);
+      setFinancialOverview(null);
+      setAdminStats(null);
+      setBlogPosts(null);
+      setReviews(null);
+      setGoodCauses(null);
+      notify('info', 'Uitgelogd', 'Je bent succesvol uitgelogd.');
     });
-  };
+  }, [applyFamily, handleAction, notify]);
 
-  const redeemReward = async (rewardId: string) => {
-    if (!user || !family || !db) return;
-    setIsLoading(true);
+  const selectChildProfile = useCallback((childId: string) => {
+    if (!family) return;
+    const selected = family.children.find((child) => child.id === childId);
+    if (selected) {
+      setUser(selected);
+      setScreen('childPin');
+    }
+  }, [family]);
 
-    const familyDocRef = doc(db, 'families', family.id);
-    const familyDocSnap = await getDoc(familyDocRef);
-    const currentFamilyData = familyDocSnap.data() as Family;
-
-    const reward = currentFamilyData.rewards.find(r => r.id === rewardId);
-    const child = currentFamilyData.children.find(c => c.id === user.id);
-
-    if (reward && child && child.points >= reward.points) {
-        const updatedChildren = currentFamilyData.children.map(c => c.id === user.id ? { ...c, points: c.points - reward.points } : c);
-        const newPendingReward: PendingReward = {
-            id: `pr${Date.now()}`,
-            childId: child.id,
-            childName: child.name,
-            rewardId: reward.id,
-            rewardName: reward.name,
-            points: reward.points,
-            redeemedAt: Timestamp.now(),
-        };
-        await updateDoc(familyDocRef, { children: updatedChildren, pendingRewards: arrayUnion(newPendingReward) });
-        await refreshFamilyData();
-        toast({ title: "Succes!", description: `Je hebt "${reward.name}" gekocht!` });
-        const parentEmail = currentFamilyData.email;
-        if (parentEmail) {
-            void sendNotification({
-                type: 'reward_redeemed',
-                to: parentEmail,
-                data: {
-                    parentName: currentFamilyData.familyName,
-                    childName: child.name,
-                    rewardName: reward.name,
-                    points: reward.points,
-                },
-            });
-        }
+  const submitPin = useCallback((pin: string) => {
+    if (user && user.pin === pin) {
+      setScreen('childDashboard');
     } else {
-        toast({ variant: "destructive", title: "Oeps!", description: "Je hebt niet genoeg punten." });
+      notify('destructive', 'Fout', 'Pincode is onjuist. Probeer het opnieuw.');
     }
-    setIsLoading(false);
-  };
+  }, [notify, user]);
 
-  const markRewardAsGiven = async (pendingRewardId: string) => {
-    if(!family) return;
+  const addChild = useCallback(async (name: string, pin: string, avatar: string) => {
+    if (!family) return;
+    const gate = canAddChild(family);
+    if (!gate.allowed) {
+      notify('destructive', 'Upgrade nodig', gate.reason || 'Het maximum aantal kinderen is bereikt.');
+      return;
+    }
+    await handleAction<{ family: SerializableFamily }>('addChild', { name, pin, avatar }, ({ family: payload }) => {
+      applyFamily(payload ?? null);
+      notify('success', 'Succes', `${name} is toegevoegd!`);
+    });
+  }, [applyFamily, family, handleAction, notify]);
+
+  const updateChild = useCallback(async (childId: string, updates: Partial<Child>) => {
+    await handleAction<{ family: SerializableFamily }>('updateChild', { childId, ...updates }, ({ family: payload }) => {
+      applyFamily(payload ?? null);
+      notify('success', 'Succes', 'Gegevens van het kind zijn bijgewerkt.');
+    });
+  }, [applyFamily, handleAction, notify]);
+
+  const addChore = useCallback(async (name: string, points: number, assignedTo: string[]) => {
+    if (!family) return;
+    const gate = canAddChore(family);
+    if (!gate.allowed) {
+      notify('destructive', 'Upgrade nodig', gate.reason || 'Je hebt de limiet voor deze maand bereikt.');
+      return;
+    }
+    await handleAction<{ family: SerializableFamily }>('addChore', { name, points, assignedTo }, ({ family: payload }) => {
+      applyFamily(payload ?? null);
+      notify('success', 'Succes', 'Klusje toegevoegd.');
+    });
+  }, [applyFamily, family, handleAction, notify]);
+
+  const updateChore = useCallback(async (choreId: string, updates: Partial<Chore>) => {
+    await handleAction<{ family: SerializableFamily }>('updateChore', { choreId, ...updates }, ({ family: payload }) => {
+      applyFamily(payload ?? null);
+      notify('success', 'Succes', 'Klusje bijgewerkt.');
+    });
+  }, [applyFamily, handleAction, notify]);
+
+  const addReward = useCallback(async (name: string, points: number, type: RewardType, assignedTo: string[]) => {
+    if (!family) return;
+    if (type === 'donation' && !planHasFeature(family.subscription as SubscriptionInfo | undefined, 'donations')) {
+      notify('destructive', 'Premium nodig', 'Donaties zijn onderdeel van het Gezin+ abonnement.');
+      return;
+    }
+    await handleAction<{ family: SerializableFamily }>('addReward', { name, points, type, assignedTo }, ({ family: payload }) => {
+      applyFamily(payload ?? null);
+      notify('success', 'Succes', 'Beloning toegevoegd.');
+    });
+  }, [applyFamily, family, handleAction, notify]);
+
+  const updateReward = useCallback(async (rewardId: string, updates: Partial<Reward>) => {
+    await handleAction<{ family: SerializableFamily }>('updateReward', { rewardId, ...updates }, ({ family: payload }) => {
+      applyFamily(payload ?? null);
+      notify('success', 'Succes', 'Beloning bijgewerkt.');
+    });
+  }, [applyFamily, handleAction, notify]);
+
+  const approveChore = useCallback(async (choreId: string) => {
+    await handleAction<{ family: SerializableFamily }>('approveChore', { id: choreId }, ({ family: payload }) => {
+      applyFamily(payload ?? null);
+      notify('success', 'Succes', 'Klusje goedgekeurd.');
+    });
+  }, [applyFamily, handleAction, notify]);
+
+  const rejectChore = useCallback(async (choreId: string) => {
+    await handleAction<{ family: SerializableFamily }>('rejectChore', { id: choreId }, ({ family: payload }) => {
+      applyFamily(payload ?? null);
+      notify('info', 'Info', 'Klusje is weer beschikbaar.');
+    });
+  }, [applyFamily, handleAction, notify]);
+
+  const deleteItem = useCallback(async (collection: 'children' | 'chores' | 'rewards', itemId: string) => {
+    const actionName = collection === 'children' ? 'deleteChild' : collection === 'chores' ? 'deleteChore' : 'deleteReward';
+    const payload = collection === 'children' ? { childId: itemId } : collection === 'chores' ? { choreId: itemId } : { rewardId: itemId };
+    await handleAction<{ family: SerializableFamily }>(actionName, payload, ({ family: payloadFamily }) => {
+      applyFamily(payloadFamily ?? null);
+      notify('success', 'Succes', 'Item verwijderd.');
+    });
+  }, [applyFamily, handleAction, notify]);
+
+  const submitChoreForApproval = useCallback(async (choreId: string, emotion: string, photoFile: File | null) => {
+    if (!user || !family) {
+      notify('destructive', 'Fout', 'Geen kind geselecteerd.');
+      return;
+    }
     setIsLoading(true);
-    const rewardToGive = family.pendingRewards.find(pr => pr.id === pendingRewardId);
-    if(rewardToGive) {
-        await updateFamilyDoc({ pendingRewards: arrayRemove(rewardToGive) });
-        toast({ title: "Succes", description: "Beloning afgehandeld." });
-    }
-    setIsLoading(false);
-  };
-  
-  const saveRecoveryEmail = async (email: string) => {
-      if(!family) return;
-      setIsLoading(true);
-      await updateFamilyDoc({ recoveryEmail: email });
-      toast({ title: "Succes", description: "Herstel-e-mailadres opgeslagen." });
-      setIsLoading(false);
-  };
+    try {
+      let photoUrl: string | null = null;
+      if (photoFile) {
+        const formData = new FormData();
+        formData.append('file', photoFile);
+        formData.append('folder', 'chore-proof');
 
-  const recoverFamilyCode = async (email: string) => { // This now only sends a password reset
-      setIsLoading(true);
-      try {
-          await sendPasswordResetEmail(auth, email);
-          toast({ title: "E-mail verzonden!", description: `Als dit e-mailadres bekend is, is er een wachtwoordherstel-mail verstuurd.` });
-      } catch (error) {
-          console.error(error);
-          toast({ title: "E-mail verzonden!", description: `Als dit e-mailadres bekend is, is er een wachtwoordherstel-mail verstuurd.` });
-      } finally {
-          setScreen('parentLogin');
-          setIsLoading(false);
+        const uploadResponse = await fetch('/api/upload', {
+          method: 'POST',
+          body: formData,
+        });
+
+        if (!uploadResponse.ok) {
+          throw new Error('Upload failed');
+        }
+
+        const uploadData = await uploadResponse.json();
+        photoUrl = uploadData.url;
       }
-  };
+      const result = await callAppApi<{ family: SerializableFamily }>('submitChoreForApproval', {
+        choreId,
+        childId: user.id,
+        emotion,
+        photoUrl,
+        submittedAt: new Date().toISOString(),
+      });
+      applyFamily(result.family ?? null);
+      notify('success', 'Top gedaan!', 'Klusje is ter controle verstuurd.');
+      confetti({ particleCount: 150, spread: 120, origin: { y: 0.6 } });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Er ging iets mis bij het indienen van het klusje.';
+      notify('destructive', 'Fout', message);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [applyFamily, family, notify, user]);
+
+  const redeemReward = useCallback(async (rewardId: string) => {
+    if (!user) return;
+    await handleAction<{ family: SerializableFamily }>('redeemReward', { childId: user.id, rewardId }, ({ family: payload }) => {
+      applyFamily(payload ?? null);
+      notify('success', 'Goed gedaan!', 'Je hebt de beloning ingewisseld.');
+      confetti({ particleCount: 150, spread: 100, origin: { y: 0.6 } });
+    });
+  }, [applyFamily, handleAction, notify, user]);
+
+  const markRewardAsGiven = useCallback(async (pendingRewardId: string) => {
+    await handleAction<{ family: SerializableFamily }>('markRewardAsGiven', { pendingRewardId }, ({ family: payload }) => {
+      applyFamily(payload ?? null);
+      notify('success', 'Succes', 'Beloning afgehandeld.');
+    });
+  }, [applyFamily, handleAction, notify]);
+
+  const saveRecoveryEmail = useCallback(async (email: string) => {
+    await handleAction<{ family: SerializableFamily }>('saveRecoveryEmail', { email }, ({ family: payload }) => {
+      applyFamily(payload ?? null);
+      notify('success', 'Opgeslagen', 'Herstel-e-mailadres opgeslagen.');
+    });
+  }, [applyFamily, handleAction, notify]);
+
+  const recoverFamilyCode = useCallback(async (email: string) => {
+    await handleAction('recoverFamilyCode', { email }, () => {
+      notify('info', 'E-mail verzonden', 'Als het adres bestaat, is de gezinscode verstuurd.');
+      setScreen('parentLogin');
+    });
+  }, [handleAction, notify]);
+
+  const getAdminStats = useCallback(async () => {
+    await handleAction<{ adminStats: AdminStatsPayload }>('getAdminStats', undefined, ({ adminStats: stats }) => {
+      setAdminStats(mapAdminStats(stats));
+    });
+  }, [handleAction]);
+
+  const getAdminFamilies = useCallback(async () => {
+    await handleAction<{ families: SerializableAdminFamily[] }>('adminListFamilies', undefined, ({ families }) => {
+      setAdminFamilies(families.map(mapAdminFamily));
+    });
+  }, [handleAction]);
+
+  const createAdminFamily = useCallback(async (data: AdminFamilyInput) => {
+    await handleAction<{ families: SerializableAdminFamily[] }>('adminCreateFamily', data, ({ families }) => {
+      setAdminFamilies(families.map(mapAdminFamily));
+      notify('success', 'Gezin toegevoegd', 'Het nieuwe gezin is aangemaakt.');
+    });
+  }, [handleAction, notify]);
+
+  const updateAdminFamily = useCallback(async (data: AdminFamilyUpdateInput) => {
+    await handleAction<{ families: SerializableAdminFamily[] }>('adminUpdateFamily', data, ({ families }) => {
+      setAdminFamilies(families.map(mapAdminFamily));
+      notify('success', 'Gezin bijgewerkt', 'De gezinsgegevens zijn opgeslagen.');
+    });
+  }, [handleAction, notify]);
+
+  const deleteAdminFamily = useCallback(async (familyId: string) => {
+    await handleAction<{ families: SerializableAdminFamily[] }>('adminDeleteFamily', { familyId }, ({ families }) => {
+      setAdminFamilies(families.map(mapAdminFamily));
+      notify('info', 'Gezin verwijderd', 'Het gezin is verwijderd.');
+    });
+  }, [handleAction, notify]);
+
+  const getFinancialOverview = useCallback(async () => {
+    await handleAction<{ stats: FinancialOverview['stats']; recentSubscriptions: SerializableSubscriptionEvent[] }>('getFinancialOverview', undefined, ({ stats, recentSubscriptions }) => {
+      setFinancialOverview({
+        stats,
+        recentSubscriptions: recentSubscriptions.map(mapSubscriptionEvent),
+      });
+    });
+  }, [handleAction]);
+
+  const getGoodCauses = useCallback(async () => {
+    await handleAction<{ goodCauses: SerializableGoodCause[] }>('getGoodCauses', undefined, ({ goodCauses: payload }) => {
+      setGoodCauses(payload.map(mapGoodCause));
+    });
+  }, [handleAction]);
+
+  const loginChildStep1 = useCallback(async (familyCode: string) => {
+    await handleAction<{ family: SerializableFamily }>('lookupFamilyByCode', { familyCode }, ({ family: payload }) => {
+      if (!payload) {
+        notify('destructive', 'Fout', 'Gezinscode niet gevonden.');
+        return;
+      }
+      applyFamily(payload);
+      setScreen('childProfileSelect');
+      void getGoodCauses();
+    });
+  }, [applyFamily, getGoodCauses, handleAction, notify]);
 
   const addGoodCause = useCallback(async (cause: Omit<GoodCause, 'id'>) => {
-    setIsLoading(true);
-    try {
-      if (!db) {
-        console.error("Firestore is not initialized");
-        toast({ variant: 'destructive', title: 'Fout', description: 'Database niet beschikbaar.' });
-        return;
-      }
-      await addDoc(collection(db, "goodCauses"), cause);
-      toast({ title: "Succes", description: "Goed doel toegevoegd." });
-      await getGoodCauses(); // Refresh the list
-    } catch (error) {
-      console.error("Error adding good cause:", error);
-      toast({ variant: 'destructive', title: 'Fout', description: 'Kon goed doel niet toevoegen.' });
-    } finally {
-      setIsLoading(false);
-    }
-  }, [toast, getGoodCauses]);
+    await handleAction<{ goodCauses: SerializableGoodCause[] }>('saveGoodCause', {
+      name: cause.name,
+      description: cause.description,
+      startDate: serializeTimestamp(cause.startDate) ?? new Date().toISOString(),
+      endDate: serializeTimestamp(cause.endDate) ?? new Date().toISOString(),
+      logoUrl: cause.logoUrl ?? null,
+    }, ({ goodCauses: payload }) => {
+      setGoodCauses(payload.map(mapGoodCause));
+      notify('success', 'Succes', 'Goed doel toegevoegd.');
+    });
+  }, [handleAction, notify]);
 
   const updateGoodCause = useCallback(async (causeId: string, updates: Partial<Omit<GoodCause, 'id'>>) => {
-    setIsLoading(true);
-    try {
-      if (!db) {
-        console.error("Firestore is not initialized");
-        toast({ variant: 'destructive', title: 'Fout', description: 'Database niet beschikbaar.' });
-        return;
-      }
-      const causeRef = doc(db, "goodCauses", causeId);
-      await updateDoc(causeRef, updates);
-      toast({ title: "Succes", description: "Goed doel bijgewerkt." });
-      await getGoodCauses(); // Refresh the list
-    } catch (error) {
-      console.error("Error updating good cause:", error);
-      toast({ variant: 'destructive', title: 'Fout', description: 'Kon goed doel niet bijwerken.' });
-    } finally {
-      setIsLoading(false);
-    }
-  }, [toast, getGoodCauses]);
+    await handleAction<{ goodCauses: SerializableGoodCause[] }>('saveGoodCause', {
+      causeId,
+      name: updates.name,
+      description: updates.description,
+      startDate: updates.startDate ? serializeTimestamp(updates.startDate) : undefined,
+      endDate: updates.endDate ? serializeTimestamp(updates.endDate) : undefined,
+      logoUrl: updates.logoUrl ?? null,
+    }, ({ goodCauses: payload }) => {
+      setGoodCauses(payload.map(mapGoodCause));
+      notify('success', 'Succes', 'Goed doel bijgewerkt.');
+    });
+  }, [handleAction, notify]);
+
+  const deleteGoodCause = useCallback(async (causeId: string) => {
+    await handleAction<{ goodCauses: SerializableGoodCause[] }>('deleteGoodCause', { id: causeId }, ({ goodCauses: payload }) => {
+      setGoodCauses(payload.map(mapGoodCause));
+      notify('success', 'Succes', 'Goed doel verwijderd.');
+    });
+  }, [handleAction, notify]);
+
+  const getBlogPosts = useCallback(async () => {
+    await handleAction<{ blogPosts: SerializableBlogPost[] }>('getBlogPosts', undefined, ({ blogPosts: payload }) => {
+      setBlogPosts(payload.map(mapBlogPost));
+    });
+  }, [handleAction]);
+
+  const createBlogPost = useCallback(async (data: BlogPostInput) => {
+    await handleAction<{ blogPosts: SerializableBlogPost[] }>('saveBlogPost', {
+      title: data.title,
+      slug: data.slug,
+      excerpt: data.excerpt,
+      content: data.content,
+      coverImageUrl: data.coverImageUrl ?? null,
+      tags: data.tags,
+      status: data.status,
+      seoTitle: data.seoTitle ?? null,
+      seoDescription: data.seoDescription ?? null,
+      publishedAt: data.publishedAt ? serializeTimestamp(data.publishedAt) : null,
+    }, ({ blogPosts: payload }) => {
+      setBlogPosts(payload.map(mapBlogPost));
+      notify('success', 'Succes', 'Blogpost opgeslagen.');
+    });
+  }, [handleAction, notify]);
+
+  const updateBlogPost = useCallback(async (postId: string, data: BlogPostInput) => {
+    await handleAction<{ blogPosts: SerializableBlogPost[] }>('saveBlogPost', {
+      postId,
+      title: data.title,
+      slug: data.slug,
+      excerpt: data.excerpt,
+      content: data.content,
+      coverImageUrl: data.coverImageUrl ?? null,
+      tags: data.tags,
+      status: data.status,
+      seoTitle: data.seoTitle ?? null,
+      seoDescription: data.seoDescription ?? null,
+      publishedAt: data.publishedAt ? serializeTimestamp(data.publishedAt) : null,
+    }, ({ blogPosts: payload }) => {
+      setBlogPosts(payload.map(mapBlogPost));
+      notify('success', 'Succes', 'Blogpost bijgewerkt.');
+    });
+  }, [handleAction, notify]);
+
+  const deleteBlogPost = useCallback(async (postId: string) => {
+    await handleAction<{ blogPosts: SerializableBlogPost[] }>('deleteBlogPost', { id: postId }, ({ blogPosts: payload }) => {
+      setBlogPosts(payload.map(mapBlogPost));
+      notify('success', 'Succes', 'Blogpost verwijderd.');
+    });
+  }, [handleAction, notify]);
+
+  const getReviews = useCallback(async () => {
+    await handleAction<{ reviews: SerializableReview[] }>('getReviews', undefined, ({ reviews: payload }) => {
+      setReviews(payload.map(mapReview));
+    });
+  }, [handleAction]);
+
+  const createReview = useCallback(async (data: ReviewInput) => {
+    await handleAction<{ reviews: SerializableReview[] }>('saveReview', {
+      title: data.title,
+      slug: data.slug,
+      excerpt: data.excerpt,
+      content: data.content,
+      rating: data.rating,
+      author: data.author,
+      status: data.status,
+      seoTitle: data.seoTitle ?? null,
+      seoDescription: data.seoDescription ?? null,
+      publishedAt: data.publishedAt ? serializeTimestamp(data.publishedAt) : null,
+    }, ({ reviews: payload }) => {
+      setReviews(payload.map(mapReview));
+      notify('success', 'Succes', 'Review opgeslagen.');
+    });
+  }, [handleAction, notify]);
+
+  const updateReview = useCallback(async (reviewId: string, data: ReviewInput) => {
+    await handleAction<{ reviews: SerializableReview[] }>('saveReview', {
+      reviewId,
+      title: data.title,
+      slug: data.slug,
+      excerpt: data.excerpt,
+      content: data.content,
+      rating: data.rating,
+      author: data.author,
+      status: data.status,
+      seoTitle: data.seoTitle ?? null,
+      seoDescription: data.seoDescription ?? null,
+      publishedAt: data.publishedAt ? serializeTimestamp(data.publishedAt) : null,
+    }, ({ reviews: payload }) => {
+      setReviews(payload.map(mapReview));
+      notify('success', 'Succes', 'Review bijgewerkt.');
+    });
+  }, [handleAction, notify]);
+
+  const deleteReview = useCallback(async (reviewId: string) => {
+    await handleAction<{ reviews: SerializableReview[] }>('deleteReview', { id: reviewId }, ({ reviews: payload }) => {
+      setReviews(payload.map(mapReview));
+      notify('success', 'Succes', 'Review verwijderd.');
+    });
+  }, [handleAction, notify]);
 
   const startPremiumCheckout = useCallback(async (interval: BillingInterval) => {
     if (!family) {
-      toast({ variant: 'destructive', title: 'Geen gezin gevonden', description: 'Log opnieuw in en probeer het nog eens.' });
+      notify('destructive', 'Geen gezin gevonden', 'Log opnieuw in en probeer het nog eens.');
       return null;
     }
     setIsLoading(true);
@@ -1023,32 +691,28 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           plan: 'premium',
         }),
       });
-
       const data = await response.json();
       if (!response.ok) {
         throw new Error(data?.error || 'Kon betaalverzoek niet starten.');
       }
-
-      if (!data?.paymentUrl) {
-        throw new Error('Geen betaal-URL ontvangen van MultiSafepay.');
+      const paymentUrl = data?.paymentUrl as string | undefined;
+      if (!paymentUrl) {
+        throw new Error('Geen betaal-URL ontvangen.');
       }
-
-      // Store pending checkout in sessionStorage
       sessionStorage.setItem('pendingCheckout', 'premium');
-      
-      return data.paymentUrl as string;
+      return paymentUrl;
     } catch (error) {
-      console.error('startPremiumCheckout error', error);
-      toast({ variant: 'destructive', title: 'Betaling mislukt', description: error instanceof Error ? error.message : 'Probeer het later opnieuw.' });
+      const message = error instanceof Error ? error.message : 'Probeer het later opnieuw.';
+      notify('destructive', 'Betaling mislukt', message);
       return null;
     } finally {
       setIsLoading(false);
     }
-  }, [family, toast]);
+  }, [family, notify]);
 
   const confirmPremiumCheckout = useCallback(async (orderId: string, interval: BillingInterval) => {
     if (!family) {
-      toast({ variant: 'destructive', title: 'Geen gezin gevonden', description: 'Log opnieuw in en probeer het nog eens.' });
+      notify('destructive', 'Geen gezin gevonden', 'Log opnieuw in en probeer het nog eens.');
       return false;
     }
     setIsLoading(true);
@@ -1058,43 +722,29 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ orderId }),
       });
-
       const data = await response.json();
       if (!response.ok) {
         throw new Error(data?.error || 'Kon betaling niet bevestigen.');
       }
-
       if (data.status !== 'completed') {
-        toast({ variant: 'destructive', title: 'Betaling niet afgerond', description: 'De betaling is nog niet voltooid. Controleer je MultiSafepay-transactie.' });
+        notify('destructive', 'Betaling niet afgerond', 'De betaling is nog niet voltooid.');
         return false;
       }
-
-      const resolvedInterval = (data.interval as BillingInterval | undefined) ?? interval;
-      const renewalTimestamp = data.renewalDate ? Timestamp.fromDate(new Date(data.renewalDate)) : null;
-
-      await updateFamilyDoc({
-        subscription: {
-          plan: 'premium',
-          status: 'active',
-          interval: resolvedInterval,
-          renewalDate: renewalTimestamp,
-          lastPaymentAt: Timestamp.now(),
-          orderId,
-        },
+      await handleAction<{ family: SerializableFamily }>('refreshFamily', undefined, ({ family: payload }) => {
+        applyFamily(payload ?? null);
       });
-
-      toast({ title: 'Welkom bij Gezin+', description: 'Je gezin heeft nu toegang tot alle premium functies.' });
+      notify('success', 'Welkom bij Gezin+', 'Je gezin heeft nu toegang tot alle premium functies.');
       return true;
     } catch (error) {
-      console.error('confirmPremiumCheckout error', error);
-      toast({ variant: 'destructive', title: 'Bevestigen mislukt', description: error instanceof Error ? error.message : 'Probeer het later opnieuw.' });
+      const message = error instanceof Error ? error.message : 'Probeer het later opnieuw.';
+      notify('destructive', 'Bevestigen mislukt', message);
       return false;
     } finally {
       setIsLoading(false);
     }
-  }, [family, toast, updateFamilyDoc]);
+  }, [applyFamily, family, handleAction, notify]);
 
-  const value = {
+  const contextValue = useMemo<AppContextType>(() => ({
     currentScreen,
     setScreen,
     isLoading,
@@ -1109,7 +759,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     goodCauses,
     blogPosts,
     reviews,
+    adminFamilies,
+    financialOverview,
     loginParent,
+    loginAdmin,
     registerFamily,
     logout,
     loginChildStep1,
@@ -1133,6 +786,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     getGoodCauses,
     addGoodCause,
     updateGoodCause,
+    deleteGoodCause,
     getBlogPosts,
     createBlogPost,
     updateBlogPost,
@@ -1143,15 +797,79 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     deleteReview,
     startPremiumCheckout,
     confirmPremiumCheckout,
-  };
+    getAdminFamilies,
+    createAdminFamily,
+    updateAdminFamily,
+    deleteAdminFamily,
+    getFinancialOverview,
+  }), [
+    activePlan,
+    addChild,
+    addChore,
+    addGoodCause,
+    addReward,
+    approveChore,
+    blogPosts,
+    canAccessFeature,
+    confirmPremiumCheckout,
+    createBlogPost,
+    createReview,
+    currentScreen,
+    deleteBlogPost,
+    deleteGoodCause,
+    deleteItem,
+    deleteReview,
+    family,
+    adminFamilies,
+    financialOverview,
+    getAdminStats,
+    getAdminFamilies,
+    getBlogPosts,
+    getGoodCauses,
+    getFinancialOverview,
+    getReviews,
+    goodCauses,
+    isLoading,
+    isPremium,
+    loginChildStep1,
+    loginParent,
+    loginAdmin,
+    logout,
+    markRewardAsGiven,
+    monthlyChoreUsage,
+    redeemReward,
+    recoverFamilyCode,
+    registerFamily,
+    createAdminFamily,
+    updateAdminFamily,
+    deleteAdminFamily,
+    rejectChore,
+    reviews,
+    saveRecoveryEmail,
+    selectChildProfile,
+    startPremiumCheckout,
+    submitChoreForApproval,
+    submitPin,
+    updateBlogPost,
+    updateChild,
+    updateChore,
+    updateGoodCause,
+    updateReward,
+    updateReview,
+    user,
+    adminStats,
+    planDefinition,
+  ]);
 
-  return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
+  return <AppContext.Provider value={contextValue}>{children}</AppContext.Provider>;
 }
 
-export function useApp() {
+export const useAppContext = () => {
   const context = useContext(AppContext);
-  if (context === undefined) {
-    throw new Error('useApp must be used within an AppProvider');
+  if (!context) {
+    throw new Error('useAppContext must be used within an AppProvider');
   }
   return context;
-}
+};
+
+export const useApp = useAppContext;

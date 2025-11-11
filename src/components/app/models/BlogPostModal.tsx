@@ -11,12 +11,10 @@ import { useToast } from '@/hooks/use-toast';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { RichTextEditor } from '@/components/ui/rich-text-editor';
 import { Loader2 } from 'lucide-react';
-import { Timestamp } from 'firebase/firestore';
+import { Timestamp } from '@/lib/timestamp';
 import { format } from 'date-fns';
 import { useApp } from '../AppProvider';
 import type { BlogPost } from '@/lib/types';
-import { storage } from '@/lib/firebase';
-import { getDownloadURL, ref, uploadBytesResumable } from 'firebase/storage';
 
 type BlogPostModalProps = {
   isOpen: boolean;
@@ -131,43 +129,29 @@ export default function BlogPostModal({ isOpen, setIsOpen, initial = null }: Blo
     setCoverUploadProgress(0);
 
     try {
-      const path = `blog-covers/${Date.now()}-${file.name}`;
-      const storageRef = ref(storage, path);
-      const uploadTask = uploadBytesResumable(storageRef, file, {
-        contentType: file.type,
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('folder', 'blog-covers');
+
+      const uploadResponse = await fetch('/api/upload', {
+        method: 'POST',
+        body: formData,
       });
 
-      const url = await new Promise<string>((resolve, reject) => {
-        uploadTask.on(
-          'state_changed',
-          (snapshot) => {
-            const progress = Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100);
-            setCoverUploadProgress(progress);
-            console.log('Upload progress:', progress);
-          },
-          (error) => {
-            console.error('Upload error:', error);
-            reject(error);
-          },
-          async () => {
-            try {
-              const downloadUrl = await getDownloadURL(uploadTask.snapshot.ref);
-              resolve(downloadUrl);
-            } catch (err) {
-              reject(err);
-            }
-          }
-        );
-      });
+      if (!uploadResponse.ok) {
+        throw new Error('Upload failed');
+      }
 
-      setCoverImageUrl(url);
+      const uploadData = await uploadResponse.json();
+      setCoverImageUrl(uploadData.url);
       toast({ title: 'Cover geüpload', description: 'De afbeelding is toegevoegd aan je artikel.' });
     } catch (error: any) {
       console.error('Cover upload failed', error);
-      const errorMessage = error?.code === 'storage/unauthorized'
-        ? 'Je hebt geen toestemming om afbeeldingen te uploaden. Controleer de Firebase Storage regels.'
-        : 'Probeer het opnieuw of kies een andere afbeelding.';
-      toast({ variant: 'destructive', title: 'Upload mislukt', description: errorMessage });
+      toast({
+        variant: 'destructive',
+        title: 'Upload mislukt',
+        description: 'Probeer het opnieuw of kies een andere afbeelding.'
+      });
     } finally {
       setIsUploadingCover(false);
       setCoverUploadProgress(0);
@@ -287,7 +271,7 @@ export default function BlogPostModal({ isOpen, setIsOpen, initial = null }: Blo
                 placeholder="https://voorbeeld.nl/afbeelding.jpg"
                 disabled={isUploadingCover}
               />
-              <p className="text-xs text-slate-500">Ondersteunt JPG, PNG of WEBP tot 5 MB. Afbeeldingen worden opgeslagen in Firebase Storage.</p>
+              <p className="text-xs text-slate-500">Ondersteunt JPG, PNG of WEBP tot 5 MB. Afbeeldingen worden opgeslagen in Vercel Blob Storage.</p>
             </div>
             <input
               ref={coverFileInputRef}

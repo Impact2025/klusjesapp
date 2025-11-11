@@ -1,0 +1,13 @@
+   ▲ Next.js 15.3.3
+   - Local:        http://localhost:9010
+   - Network:      http://192.168.178.109:9010
+   - Environments: .env.local
+
+ ✓ Starting...
+ ✓ Ready in 2.1s
+ ○ Compiling /api/app ...
+ ✓ Compiled /api/app in 1557ms (541 modules)
+ POST /api/app 500 in 2446ms
+ POST /api/app 500 in 489ms
+ ✓ Compiled in 124ms
+[?25h

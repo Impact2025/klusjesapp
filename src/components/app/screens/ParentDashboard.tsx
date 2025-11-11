@@ -25,7 +25,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import type { Child, Chore, Reward, BillingInterval } from '@/lib/types';
-import { Timestamp } from 'firebase/firestore';
+import { Timestamp } from '@/lib/timestamp';
 import { format } from 'date-fns';
 import { nl } from 'date-fns/locale';
 
@@ -143,9 +143,8 @@ export default function ParentDashboard() {
   const canAddMoreChildren = typeof maxChildren !== 'number' || children.length < maxChildren;
   const choreQuota = planDefinition.limits.monthlyChoreQuota;
   const choreQuotaReached = typeof choreQuota === 'number' && monthlyChoreUsage >= choreQuota;
-  const renewalLabel = family.subscription?.renewalDate && typeof (family.subscription.renewalDate as any).toDate === 'function'
-    ? format((family.subscription.renewalDate as any).toDate(), 'dd MMMM yyyy', { locale: nl })
-    : null;
+  const renewalDate = family.subscription?.renewalDate;
+  const renewalLabel = renewalDate ? format(renewalDate.toDate(), 'dd MMMM yyyy', { locale: nl }) : null;
   const currentIntervalLabel = family.subscription?.interval === 'yearly'
     ? 'Jaarplan'
     : family.subscription?.interval === 'monthly'
@@ -156,7 +155,12 @@ export default function ParentDashboard() {
   const premiumPlan = PLAN_DEFINITIONS.premium;
   
   const now = Timestamp.now();
-  const activeCause = goodCauses?.find(c => c.startDate <= now && c.endDate >= now);
+  const nowMillis = now.toMillis();
+  const activeCause = goodCauses?.find((cause) => {
+    const start = cause.startDate?.toMillis?.() ?? 0;
+    const end = cause.endDate?.toMillis?.() ?? 0;
+    return start <= nowMillis && nowMillis <= end;
+  });
 
   const copyFamilyCode = () => {
     navigator.clipboard.writeText(familyCode);

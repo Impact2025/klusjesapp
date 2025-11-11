@@ -1,19 +1,15 @@
-'use client';
-
-import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { format } from 'date-fns';
 import { nl } from 'date-fns/locale';
-import { Sparkles, ShieldCheck, Gift, Rocket, Wand2, Users, Trophy, Heart, ArrowRight, Star, Crown } from 'lucide-react';
+import { ShieldCheck, Gift, Rocket, Wand2, Users, Trophy, Heart, ArrowRight, Star, Crown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Carousel, CarouselContent, CarouselItem, CarouselNext, CarouselPrevious, type CarouselApi } from '@/components/ui/carousel';
 import { PLAN_DEFINITIONS, formatPrice } from '@/lib/plans';
 import { fetchPublishedBlogPosts } from '@/lib/content';
-import type { BlogPost } from '@/lib/types';
 import { OrganizationSchema, WebApplicationSchema } from '@/components/seo/StructuredData';
+import { HowItWorksCarousel, FounderStoryCarousel } from '@/components/home/HomePageClient';
 
 const isValidUrl = (value: string) => {
   try {
@@ -24,33 +20,9 @@ const isValidUrl = (value: string) => {
   }
 };
 
-const slides = [
-  {
-    label: 'Stap 1 • Ouders',
-    title: 'Deel jullie gezinscode meteen',
-    description: 'Log in op het ouderdashboard en geef de unieke code door – klaar om samen te starten.',
-    image: '/images/guides/schermafbeelding-195004.png',
-    accent: 'bg-primary/10 text-primary',
-  },
-  {
-    label: 'Stap 2 • Kids',
-    title: 'Kinderen loggen speels in',
-    description: 'Ze kiezen hun naam, tikken hun pincode en zien meteen welke ⭐ ze kunnen scoren.',
-    image: '/images/guides/schermafbeelding-195224.png',
-    accent: 'bg-amber-200 text-amber-800',
-  },
-  {
-    label: 'Stap 3 • Vier de beloningen',
-    title: 'Shop vol motivators & donaties',
-    description: 'Van filmavonden tot goede doelen: punten omzetten in momenten waar iedereen blij van wordt.',
-    image: '/images/guides/beloningswinkel.png',
-    accent: 'bg-violet-100 text-violet-800',
-  },
-];
-
 const highlights = [
   {
-    icon: Sparkles,
+    icon: Gift,
     title: 'Speels en modern',
     description: 'Heldere kleurpaletten, zachte animaties en een UX op maat voor gezinnen.',
   },
@@ -186,59 +158,9 @@ const founderStorySlides = [
   },
 ];
 
-export default function HomePage() {
-  const [carouselApi, setCarouselApi] = useState<CarouselApi | null>(null);
-  const [currentSlide, setCurrentSlide] = useState(0);
-  const [founderCarouselApi, setFounderCarouselApi] = useState<CarouselApi | null>(null);
-  const [currentFounderSlide, setCurrentFounderSlide] = useState(0);
-  const [latestPosts, setLatestPosts] = useState<BlogPost[]>([]);
-
-  useEffect(() => {
-    if (!carouselApi) return;
-
-    const updateSlide = () => setCurrentSlide(carouselApi.selectedScrollSnap());
-    updateSlide();
-    carouselApi.on('select', updateSlide);
-    carouselApi.on('reInit', updateSlide);
-
-    return () => {
-      carouselApi.off('select', updateSlide);
-      carouselApi.off('reInit', updateSlide);
-    };
-  }, [carouselApi]);
-
-  const totalSlides = slides.length;
-  const totalFounderSlides = founderStorySlides.length;
-
-  useEffect(() => {
-    if (!founderCarouselApi) return;
-
-    const updateFounderSlide = () => setCurrentFounderSlide(founderCarouselApi.selectedScrollSnap());
-    updateFounderSlide();
-    founderCarouselApi.on('select', updateFounderSlide);
-    founderCarouselApi.on('reInit', updateFounderSlide);
-
-    return () => {
-      founderCarouselApi.off('select', updateFounderSlide);
-      founderCarouselApi.off('reInit', updateFounderSlide);
-    };
-  }, [founderCarouselApi]);
-
-  useEffect(() => {
-    let isMounted = true;
-    fetchPublishedBlogPosts()
-      .then((posts) => {
-        if (!isMounted) return;
-        setLatestPosts(posts.slice(0, 2));
-      })
-      .catch((error) => {
-        console.error('Failed to load blog posts', error);
-      });
-
-    return () => {
-      isMounted = false;
-    };
-  }, []);
+export default async function HomePage() {
+  const allPosts = await fetchPublishedBlogPosts();
+  const latestPosts = allPosts.slice(0, 2);
 
   return (
     <div className="relative overflow-hidden">
@@ -297,73 +219,7 @@ export default function HomePage() {
             </div>
           </div>
 
-          <div className="relative">
-            <div className="absolute -left-10 -top-8 h-24 w-24 rounded-full bg-primary/30 blur-3xl" />
-            <Card className="overflow-hidden border-none bg-white/80 shadow-xl backdrop-blur">
-              <CardHeader className="flex flex-row items-center justify-between border-b bg-gradient-to-r from-sky-100 via-white to-amber-100">
-                <CardTitle className="text-lg text-slate-800">Snelle blik</CardTitle>
-                <Sparkles className="h-5 w-5 text-primary" />
-              </CardHeader>
-              <CardContent className="space-y-6 p-0">
-                <Carousel className="relative pb-12" setApi={setCarouselApi} opts={{ align: 'start' }}>
-                  <CarouselContent>
-                    {slides.map((slide, index) => (
-                      <CarouselItem key={slide.label} className="px-6 pt-6">
-                        <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr] lg:items-center">
-                          <div className="space-y-4 text-left">
-                            <div className="flex flex-wrap items-center gap-3 text-sm font-semibold text-slate-500">
-                              <Badge className={slide.accent}>Stap {index + 1}</Badge>
-                              Snelle rondleiding
-                            </div>
-                            <h3 className="text-2xl font-semibold text-slate-900">{slide.title}</h3>
-                            <p className="text-slate-600">{slide.description}</p>
-                          </div>
-                          <div className="relative">
-                            <div className="absolute -left-6 -top-6 h-20 w-20 rounded-full bg-primary/20 blur-3xl" />
-                            <div className="relative overflow-hidden rounded-3xl border border-white/60 shadow-lg">
-                              <Image src={slide.image} alt={slide.title} width={960} height={640} className="h-full w-full object-cover" />
-                            </div>
-                          </div>
-                        </div>
-                      </CarouselItem>
-                    ))}
-                  </CarouselContent>
-                  <CarouselPrevious className="-left-4 top-1/2" />
-                  <CarouselNext className="-right-4 top-1/2" />
-                </Carousel>
-
-                <div className="flex flex-col gap-4 px-6 pb-6 sm:flex-row sm:items-center sm:justify-between" aria-live="polite">
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
-                    <Badge className="w-fit bg-primary/10 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-primary">
-                      Stap {currentSlide + 1} / {totalSlides}
-                    </Badge>
-                    <span className="text-sm font-semibold text-slate-700">{slides[currentSlide]?.title}</span>
-                  </div>
-                  <div className="flex flex-wrap justify-center gap-2">
-                    {slides.map((slide, index) => (
-                      <button
-                        key={slide.label}
-                        type="button"
-                        onClick={() => carouselApi?.scrollTo(index)}
-                        className={`h-2 rounded-full transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary ${
-                          index === currentSlide ? 'w-8 bg-primary shadow-sm' : 'w-3 bg-slate-300/80 hover:bg-slate-400'
-                        }`}
-                        aria-label={`Ga naar stap ${index + 1}`}
-                      />
-                    ))}
-                  </div>
-                </div>
-                <div className="flex justify-center gap-3 px-6 pb-6 sm:hidden">
-                  <Button variant="outline" size="sm" onClick={() => carouselApi?.scrollPrev()} disabled={currentSlide === 0}>
-                    Vorige
-                  </Button>
-                  <Button size="sm" onClick={() => carouselApi?.scrollNext()} disabled={currentSlide === totalSlides - 1}>
-                    Volgende
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
+          <HowItWorksCarousel />
         </section>
 
         <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3" id="hoe-werkt-het">
@@ -465,76 +321,7 @@ export default function HomePage() {
             </div>
             <div className="relative mt-6 lg:mt-0">
               <div className="absolute -left-8 -top-8 h-32 w-32 rounded-full bg-white/20 blur-3xl" />
-              <Card className="border-none bg-white/10 backdrop-blur">
-                <CardContent className="space-y-6 p-0">
-                  <Carousel
-                    className="w-full pb-12"
-                    opts={{ align: 'start' }}
-                    setApi={setFounderCarouselApi}
-                  >
-                    <CarouselContent>
-                      {founderStorySlides.map((slide) => (
-                        <CarouselItem key={slide.title} className="px-6 pt-6">
-                          <div className="space-y-4 text-left">
-                            <h3 className="text-xl font-semibold text-white">{slide.title}</h3>
-                            <div className="space-y-3 text-white/85">
-                              {slide.paragraphs.map((paragraph) => (
-                                <p key={paragraph} className="text-sm leading-relaxed">
-                                  {paragraph}
-                                </p>
-                              ))}
-                            </div>
-                          </div>
-                        </CarouselItem>
-                      ))}
-                    </CarouselContent>
-                    <CarouselPrevious className="-left-3 top-1/2 hidden sm:flex border-white/30 text-white hover:bg-white/10" />
-                    <CarouselNext className="-right-3 top-1/2 hidden sm:flex border-white/30 text-white hover:bg-white/10" />
-                  </Carousel>
-
-                  <div className="flex flex-col gap-3 px-6 pb-6 sm:flex-row sm:items-center sm:justify-between" aria-live="polite">
-                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
-                      <Badge className="w-fit bg-white/20 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-white">
-                        Slide {currentFounderSlide + 1} / {totalFounderSlides}
-                      </Badge>
-                      <span className="text-xs font-semibold text-white/80">{founderStorySlides[currentFounderSlide]?.title}</span>
-                    </div>
-                    <div className="flex flex-wrap justify-center gap-1">
-                      {founderStorySlides.map((slide, index) => (
-                        <button
-                          key={slide.title}
-                          type="button"
-                          onClick={() => founderCarouselApi?.scrollTo(index)}
-                          className={`h-1.5 rounded-full transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white ${
-                            index === currentFounderSlide ? 'w-8 bg-white' : 'w-3 bg-white/40 hover:bg-white/70'
-                          }`}
-                          aria-label={`Ga naar ${slide.title}`}
-                        />
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="flex justify-center gap-3 px-6 pb-6 sm:hidden">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => founderCarouselApi?.scrollPrev()}
-                      disabled={currentFounderSlide === 0}
-                      className="border-white text-white hover:bg-white/10"
-                    >
-                      Vorige
-                    </Button>
-                    <Button
-                      size="sm"
-                      onClick={() => founderCarouselApi?.scrollNext()}
-                      disabled={currentFounderSlide === totalFounderSlides - 1}
-                      className="bg-white text-primary hover:bg-white/90"
-                    >
-                      Volgende
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
+              <FounderStoryCarousel />
             </div>
           </div>
         </section>

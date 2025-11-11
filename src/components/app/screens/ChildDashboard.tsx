@@ -9,7 +9,7 @@ import RewardShopModal from '../models/RewardShopModal';
 import SubmitChoreModal from '../models/SubmitChoreModal';
 import LevelsModal from '../models/LevelsModal';
 import type { Chore } from '@/lib/types';
-import { Timestamp } from 'firebase/firestore';
+import { Timestamp } from '@/lib/timestamp';
 
 const levels = [
   { points: 1000, name: 'KlusjesKoning', icon: '👑' },
@@ -35,7 +35,12 @@ export default function ChildDashboard() {
   if (!user || !family) return null;
 
   const now = Timestamp.now();
-  const activeCause = goodCauses?.find(c => c.startDate <= now && c.endDate >= now);
+  const nowMillis = now.toMillis();
+  const activeCause = goodCauses?.find((cause) => {
+    const start = cause.startDate?.toMillis?.() ?? 0;
+    const end = cause.endDate?.toMillis?.() ?? 0;
+    return start <= nowMillis && nowMillis <= end;
+  });
 
   const currentLevel = getLevel(user.totalPointsEver);
   
