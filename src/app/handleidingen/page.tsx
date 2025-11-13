@@ -383,7 +383,7 @@ export default function GuidesPage() {
   return (
     <div className="relative overflow-hidden">
       <div className="pointer-events-none absolute inset-0 -z-10 bg-gradient-to-br from-sky-100 via-white to-amber-100" />
-      <main className="mx-auto flex max-w-6xl flex-col gap-16 px-6 py-16 sm:px-10">
+      <main className="mx-auto flex max-w-6xl flex-col gap-8 sm:gap-16 px-4 py-8 sm:px-10 sm:py-16">
         <div className="flex justify-start">
           <Button asChild variant="outline" size="sm">
             <Link href="/" className="flex items-center gap-2">
@@ -392,12 +392,12 @@ export default function GuidesPage() {
             </Link>
           </Button>
         </div>
-        <header className="space-y-6 text-center">
-          <div className="mx-auto inline-flex items-center gap-2 rounded-full bg-white/70 px-4 py-2 text-sm font-semibold text-primary shadow">
-            <Sparkles className="h-4 w-4" />
+        <header className="space-y-4 sm:space-y-6 text-center">
+          <div className="mx-auto inline-flex items-center gap-2 rounded-full bg-white/70 px-3 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm font-semibold text-primary shadow">
+            <Sparkles className="h-3 w-3 sm:h-4 sm:w-4" />
             Super vette handleiding
           </div>
-          <h1 className="font-brand text-4xl leading-tight text-slate-900 sm:text-5xl">
+          <h1 className="font-brand text-2xl sm:text-4xl leading-tight text-slate-900 lg:text-5xl">
             👨‍👩‍👧 Handleiding voor Ouders & Kids
           </h1>
           <p className="mx-auto max-w-3xl text-lg text-slate-600 sm:text-xl">
