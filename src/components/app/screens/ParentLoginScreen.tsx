@@ -125,6 +125,18 @@ export default function ParentLoginScreen() {
             Wachtwoord vergeten?
           </Button>
         )}
+
+        <div className="mt-6 pt-6 border-t border-gray-200">
+          <p className="text-center text-sm text-gray-600 mb-3">Ben je een kind?</p>
+          <Button
+            variant="outline"
+            onClick={() => setScreen('childLogin')}
+            className="w-full border-amber-300 text-amber-700 hover:bg-amber-50"
+            disabled={isLoading}
+          >
+            Login als kind met gezinscode
+          </Button>
+        </div>
       </main>
     </ScreenWrapper>
   );
