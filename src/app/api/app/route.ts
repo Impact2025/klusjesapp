@@ -362,6 +362,19 @@ export async function POST(request: Request) {
         }
         return NextResponse.json({ family: serializeFamily(family) });
       }
+      case 'loginChild': {
+        const data = z.object({ familyId: z.string(), childId: z.string(), pin: z.string() }).parse(payload);
+        const family = await loadFamilyWithRelations(data.familyId);
+        if (!family) {
+          return errorResponse('Gezin niet gevonden.', 404);
+        }
+        const child = family.children.find(c => c.id === data.childId);
+        if (!child || child.pin !== data.pin) {
+          return errorResponse('Onjuiste pincode.', 401);
+        }
+        await createSession(data.familyId);
+        return respondWithFamily(data.familyId);
+      }
       case 'addChild': {
         const session = await requireSession();
         const data = childSchema.parse(payload);

@@ -317,13 +317,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, [family]);
 
-  const submitPin = useCallback((pin: string) => {
-    if (user && user.pin === pin) {
-      setScreen('childDashboard');
-    } else {
-      notify('destructive', 'Fout', 'Pincode is onjuist. Probeer het opnieuw.');
+  const submitPin = useCallback(async (pin: string) => {
+    if (!user || !family) {
+      notify('destructive', 'Fout', 'Geen kind geselecteerd.');
+      return;
     }
-  }, [notify, user]);
+    await handleAction<{ family: SerializableFamily }>('loginChild', {
+      familyId: family.id,
+      childId: user.id,
+      pin
+    }, ({ family: payload }) => {
+      applyFamily(payload ?? null);
+      setScreen('childDashboard');
+      notify('success', 'Welkom!', `Hoi ${user.name}!`);
+    });
+  }, [applyFamily, family, handleAction, notify, user]);
 
   const addChild = useCallback(async (name: string, pin: string, avatar: string) => {
     if (!family) return;
