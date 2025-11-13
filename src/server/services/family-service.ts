@@ -233,7 +233,7 @@ export const getRewardById = async (familyId: string, rewardId: string) => {
   });
 };
 
-export const serializeFamily = (family: NonNullable<Awaited<ReturnType<typeof loadFamilyWithRelations>>>): SerializableFamily => {
+export const serializeFamily = (family: NonNullable<Awaited<ReturnType<typeof loadFamilyWithRelations>>> | NonNullable<Awaited<ReturnType<typeof getFamilyByCode>>>): SerializableFamily => {
   const childrenData: SerializableChild[] = family.children.map((child) => ({
     id: child.id,
     name: child.name,
