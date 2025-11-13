@@ -231,13 +231,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const refreshFamily = useCallback(async () => {
     try {
       const current = await fetchCurrentFamily();
-      applyFamily(current);
       if (current) {
+        applyFamily(current);
         setScreen((prev) => (prev === 'landing' || prev === 'parentLogin' ? 'parentDashboard' : prev));
       }
+      // If no session but we're in child login flow, don't reset anything
     } catch (error) {
       console.error('refreshFamily error', error);
-      applyFamily(null);
+      // Don't reset family or screen during child login flow
     }
   }, [applyFamily]);
 
